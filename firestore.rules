@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Budgee data ownership.
+//
+// Every record a user owns lives under users/{uid}. A signed in user may only
+// read and write inside their own subtree, so one account can never reach
+// another account's transactions, wallets, categories, budgets or recurring
+// payments. There are no globally readable collections and no shared demo data:
+// the demo dataset is generated on the client and written into the signed in
+// user's own documents only, after they choose it during onboarding.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // users/{uid}
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      // users/{uid}/transactions/{transactionId}
+      // users/{uid}/wallets/{walletId}
+      // users/{uid}/categories/{categoryId}
+      // users/{uid}/budgets/{budgetId}
+      // users/{uid}/recurringPayments/{recurringPaymentId}
+      match /{collection}/{documentId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Any deeper nesting stays owner scoped as well.
+      match /{path=**} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // Everything outside a user subtree is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
