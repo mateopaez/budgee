@@ -1,6 +1,6 @@
 {
-  "name": "budgee",
-  "short_name": "budgee",
+  "name": "Budgee",
+  "short_name": "Budgee",
   "display": "standalone",
   "scope": "./",
   "start_url": "./",
@@ -53,5 +53,13 @@
       "type": "image/png",
       "purpose": "maskable any"
     }
+  ],
+  "description": "Mobile first personal budgeting for Canadian dollars.",
+  "background_color": "#05090a",
+  "theme_color": "#05090a",
+  "orientation": "portrait",
+  "categories": [
+    "finance",
+    "productivity"
   ]
 }
