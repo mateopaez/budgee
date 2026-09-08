@@ -74,14 +74,6 @@ import { Icon } from '../../shared/ui/icon';
       </form>
 
       <div authFooter class="mt-8 flex flex-col gap-3">
-        <button
-          type="button"
-          class="min-h-[3.25rem] rounded-full border border-line-strong text-[1rem] font-semibold text-ink disabled:opacity-60"
-          [disabled]="auth.busy()"
-          (click)="google()"
-        >
-          Continue with Google
-        </button>
         <p class="text-center text-[0.9rem] text-ink-muted">
           New here?
           <a routerLink="/sign-up" class="font-semibold text-ink underline underline-offset-4">
@@ -109,12 +101,6 @@ export class SignInPage {
     if (this.form.invalid) return;
     const { email, password } = this.form.getRawValue();
     if (await this.auth.signInWithEmail(email, password)) {
-      await this.router.navigateByUrl('/');
-    }
-  }
-
-  protected async google(): Promise<void> {
-    if (await this.auth.signInWithGoogle()) {
       await this.router.navigateByUrl('/');
     }
   }

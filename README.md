@@ -25,10 +25,9 @@ The app uses the Firebase project already configured in
 `src/app/core/firebase/firebase.config.ts`. The values there are the standard
 public web app identifiers; no secrets belong in this repository.
 
-Two sign in providers must be enabled in the Firebase console under
+One sign in providers must be enabled in the Firebase console under
 **Authentication -> Sign-in method**:
 
-- **Google**
 - **Email/Password**
 
 Also add the domains you serve from to **Authentication -> Settings ->

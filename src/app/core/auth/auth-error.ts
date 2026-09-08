@@ -14,9 +14,6 @@ const MESSAGES: Record<string, string> = {
   'auth/weak-password': 'Choose a password with at least 8 characters.',
   'auth/too-many-requests': 'Too many attempts. Wait a minute and try again.',
   'auth/network-request-failed': 'No connection. Check your network and try again.',
-  'auth/popup-closed-by-user': 'The Google window closed before sign in finished.',
-  'auth/cancelled-popup-request': 'The Google window closed before sign in finished.',
-  'auth/popup-blocked': 'Your browser blocked the Google window. Allow pop-ups and try again.',
   'auth/operation-not-allowed':
     'This sign in method is not enabled for the project yet. Enable it in the Firebase console.',
   'auth/unauthorized-domain': 'This domain is not authorised for sign in in the Firebase console.',

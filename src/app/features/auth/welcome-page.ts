@@ -1,14 +1,12 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { AuthLayout } from './auth-layout';
-import { AuthMessage } from './auth-controls';
-import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../shared/ui/icon';
 
 @Component({
   selector: 'app-welcome-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AuthLayout, AuthMessage, RouterLink, Icon],
+  imports: [AuthLayout, RouterLink, Icon],
   template: `
     <app-auth-layout
       heading="Money, minus the guesswork."
@@ -31,20 +29,10 @@ import { Icon } from '../../shared/ui/icon';
         }
       </div>
 
-      <app-auth-message [error]="auth.error()" />
-
       <div authFooter class="mt-8 flex flex-col gap-3">
-        <button
-          type="button"
-          class="min-h-[3.25rem] rounded-full bg-white text-[1rem] font-semibold text-ink-inverse disabled:opacity-60"
-          [disabled]="auth.busy()"
-          (click)="continueWithGoogle()"
-        >
-          {{ auth.busy() ? 'Opening Google...' : 'Continue with Google' }}
-        </button>
         <a
           routerLink="/sign-up"
-          class="flex min-h-[3.25rem] items-center justify-center rounded-full border border-line-strong text-[1rem] font-semibold text-ink"
+          class="flex min-h-[3.25rem] items-center justify-center rounded-full bg-white text-[1rem] font-semibold text-ink-inverse"
         >
           Sign up with email
         </a>
@@ -59,18 +47,9 @@ import { Icon } from '../../shared/ui/icon';
   `,
 })
 export class WelcomePage {
-  protected readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
-
   protected readonly points = [
     { icon: 'pie', title: 'Plan a real budget', body: 'Set what each category gets, then watch what is left.' },
     { icon: 'eye', title: 'See every dollar', body: 'Charts, a spend calendar and a clear monthly list.' },
     { icon: 'repeat', title: 'Spot recurring bills', body: 'Budgee finds the payments that come back each month.' },
   ] as const;
-
-  protected async continueWithGoogle(): Promise<void> {
-    if (await this.auth.signInWithGoogle()) {
-      await this.router.navigateByUrl('/onboarding');
-    }
-  }
 }

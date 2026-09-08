@@ -1,17 +1,13 @@
 import { Injectable, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
-  GoogleAuthProvider,
   browserLocalPersistence,
   createUserWithEmailAndPassword,
   getAuth,
-  getRedirectResult,
   onAuthStateChanged,
   sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
   signOut,
   updateProfile,
   type Auth,
@@ -62,30 +58,11 @@ export class AuthService {
       this.userSignal.set(user ? toAuthUser(user) : null);
       this.statusSignal.set(user ? 'authenticated' : 'anonymous');
     });
-    // Completes a redirect based Google sign in when pop-ups were unavailable.
-    void getRedirectResult(this.auth).catch(() => undefined);
   }
 
   clearMessages(): void {
     this.errorSignal.set(null);
     this.noticeSignal.set(null);
-  }
-
-  async signInWithGoogle(): Promise<boolean> {
-    if (!this.auth) return false;
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    return this.run(async () => {
-      try {
-        await signInWithPopup(this.auth as Auth, provider);
-      } catch (error) {
-        if (isPopupProblem(error)) {
-          await signInWithRedirect(this.auth as Auth, provider);
-          return;
-        }
-        throw error;
-      }
-    });
   }
 
   async signInWithEmail(email: string, password: string): Promise<boolean> {
@@ -150,16 +127,4 @@ function toAuthUser(user: User): AuthUser {
     email: user.email ?? '',
     emailVerified: user.emailVerified,
   };
-}
-
-function isPopupProblem(error: unknown): boolean {
-  const code =
-    typeof error === 'object' && error !== null && 'code' in error
-      ? String((error as { code: unknown }).code)
-      : '';
-  return (
-    code === 'auth/popup-blocked' ||
-    code === 'auth/operation-not-supported-in-this-environment' ||
-    code === 'auth/cancelled-popup-request'
-  );
 }
