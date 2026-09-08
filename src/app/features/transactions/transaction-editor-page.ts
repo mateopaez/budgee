@@ -46,6 +46,26 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
     ReactiveFormsModule,
   ],
   template: `
+    @if (loadState() === 'missing') {
+      <app-sheet-shell title="Transaction not found" (dismiss)="close()">
+        <p class="mt-4 text-[0.95rem] leading-relaxed text-ink-muted">
+          This transaction is not in your account. It may have been deleted, or the link is no longer valid.
+        </p>
+        <div sheetFooter class="pt-4">
+          <button
+            type="button"
+            class="min-h-[3.25rem] w-full rounded-full border border-line-strong text-[1rem] font-semibold text-ink"
+            (click)="close()"
+          >
+            Go back
+          </button>
+        </div>
+      </app-sheet-shell>
+    } @else if (loadState() === 'loading') {
+      <app-sheet-shell title="Edit transaction" (dismiss)="close()">
+        <p class="mt-4 text-[0.95rem] text-ink-muted" role="status">Loading transaction…</p>
+      </app-sheet-shell>
+    } @else {
     <app-sheet-shell [title]="isEditing() ? 'Edit transaction' : 'New transaction'" (dismiss)="close()">
       <form [formGroup]="form" (ngSubmit)="save()">
         <div class="flex flex-col items-center pt-2">
@@ -261,6 +281,7 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
         />
       }
     }
+    }
   `,
 })
 export class TransactionEditorPage {
@@ -275,6 +296,7 @@ export class TransactionEditorPage {
 
   protected readonly picker = signal<PickerKind>(null);
   protected readonly errorMessage = signal<string | null>(null);
+  protected readonly loadState = signal<'ready' | 'loading' | 'missing'>('ready');
 
   protected readonly typeOptions: { id: TransactionType; label: string }[] = [
     { id: 'expense', label: 'Expense' },
@@ -312,31 +334,45 @@ export class TransactionEditorPage {
 
   constructor() {
     this.form.valueChanges.subscribe(() => this.formState.update((v) => v + 1));
-    const existing = this.transactionId() ? this.store.transactionById(this.transactionId()!) : null;
+    void this.hydrate();
+  }
+
+  private async hydrate(): Promise<void> {
+    const id = this.transactionId();
     const prefs = this.store.preferences();
     const wallets = this.store.wallets();
 
-    if (existing) {
-      this.typeSignal.set(existing.type);
-      this.form.patchValue({
-        amount: centsToInputString(existing.amountCents),
-        type: existing.type,
-        categoryId: existing.categoryId,
-        fromWalletId: existing.fromWalletId,
-        toWalletId: existing.toWalletId,
-        merchant: existing.merchant,
-        date: existing.date,
-        recurrence: existing.recurrence,
-        excludedFromBudget: existing.excludedFromBudget,
-      });
-    } else {
+    if (!id) {
+      this.loadState.set('ready');
       this.form.patchValue({
         categoryId: prefs?.defaultExpenseCategoryId ?? this.store.categories()[0]?.id ?? '',
         fromWalletId: wallets[0]?.id ?? null,
         toWalletId: null,
         date: this.store.today(),
       });
+      return;
     }
+
+    this.loadState.set('loading');
+    const existing = await this.store.fetchTransaction(id);
+    if (!existing) {
+      this.loadState.set('missing');
+      return;
+    }
+
+    this.typeSignal.set(existing.type);
+    this.form.patchValue({
+      amount: centsToInputString(existing.amountCents),
+      type: existing.type,
+      categoryId: existing.categoryId,
+      fromWalletId: existing.fromWalletId,
+      toWalletId: existing.toWalletId,
+      merchant: existing.merchant,
+      date: existing.date,
+      recurrence: existing.recurrence,
+      excludedFromBudget: existing.excludedFromBudget,
+    });
+    this.loadState.set('ready');
   }
 
   protected readonly categoryOptions = computed<PickerOption[]>(() => {

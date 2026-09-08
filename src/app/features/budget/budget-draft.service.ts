@@ -1,5 +1,4 @@
-import { Injectable, PLATFORM_ID, computed, inject, signal } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Injectable, computed, signal } from '@angular/core';
 import type { BudgetPeriodType } from '../../core/models';
 
 export interface BudgetDraftIncome {
@@ -20,8 +19,6 @@ export interface BudgetDraft {
   readonly categoryIds: readonly string[];
 }
 
-const KEY = 'budgee:budget-draft';
-
 export function emptyDraft(): BudgetDraft {
   return {
     step: 0,
@@ -37,46 +34,22 @@ export function emptyDraft(): BudgetDraft {
   };
 }
 
-/** Keeps the budget creation flow alive while the user moves between steps. */
+/**
+ * Keeps the budget creation flow alive while the user moves between steps.
+ * In-memory only — wizard state is not application data and is not persisted.
+ */
 @Injectable({ providedIn: 'root' })
 export class BudgetDraftService {
-  private readonly platformId = inject(PLATFORM_ID);
-  private readonly draftSignal = signal<BudgetDraft>(this.restore());
+  private readonly draftSignal = signal<BudgetDraft>(emptyDraft());
 
   readonly draft = this.draftSignal.asReadonly();
   readonly step = computed(() => this.draftSignal().step);
 
   patch(patch: Partial<BudgetDraft>): void {
-    this.draftSignal.update((current) => {
-      const next = { ...current, ...patch };
-      this.persist(next);
-      return next;
-    });
+    this.draftSignal.update((current) => ({ ...current, ...patch }));
   }
 
   reset(): void {
-    const next = emptyDraft();
-    this.draftSignal.set(next);
-    this.persist(next);
-  }
-
-  private restore(): BudgetDraft {
-    if (!isPlatformBrowser(this.platformId)) return emptyDraft();
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return emptyDraft();
-      return { ...emptyDraft(), ...(JSON.parse(raw) as Partial<BudgetDraft>) };
-    } catch {
-      return emptyDraft();
-    }
-  }
-
-  private persist(draft: BudgetDraft): void {
-    if (!isPlatformBrowser(this.platformId)) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(draft));
-    } catch {
-      // Non fatal: the draft simply will not survive a reload.
-    }
+    this.draftSignal.set(emptyDraft());
   }
 }

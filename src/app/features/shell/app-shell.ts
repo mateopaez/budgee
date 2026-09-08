@@ -19,43 +19,62 @@ import { SessionService } from '../../core/state/session.service';
   host: { class: 'flex min-h-[100dvh] flex-col bg-canvas text-ink' },
   template: `
     <div [attr.data-accent]="accent()" class="flex min-h-[100dvh] flex-col">
-      <router-outlet />
-
-      @if (showDemoBanner()) {
+      @if (store.status() === 'error') {
         <div
-          class="pointer-events-none fixed bottom-0 left-1/2 z-30 w-full max-w-[430px] -translate-x-1/2 px-3"
-          style="padding-bottom: calc(var(--safe-bottom) + 5.25rem)"
+          class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center"
+          style="padding-top: var(--safe-top); padding-bottom: var(--nav-clearance)"
         >
-          <div
-            class="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface/95 py-2 pr-2 pl-4 backdrop-blur"
+          <h1 class="text-[1.25rem] font-semibold text-ink">Could not load your data</h1>
+          <p class="max-w-sm text-[0.95rem] leading-relaxed text-ink-muted">
+            {{ store.error() ?? 'Firestore is unavailable. Check your connection and try again.' }}
+          </p>
+          <button
+            type="button"
+            class="min-h-[3rem] rounded-full bg-white px-6 text-[1rem] font-semibold text-ink-inverse"
+            (click)="retry()"
           >
-            <span class="flex-1 text-[0.85rem] text-ink-muted">Demo mode enabled</span>
-            <button
-              type="button"
-              class="min-h-[2.25rem] rounded-full bg-raised px-4 text-[0.85rem] font-semibold text-ink"
-              (click)="disableDemo()"
-            >
-              Disable
-            </button>
-            <button
-              type="button"
-              class="min-h-[2.25rem] rounded-full px-2 text-[0.85rem] text-ink-muted"
-              aria-label="Hide demo mode banner"
-              (click)="bannerDismissed.set(true)"
-            >
-              &#10005;
-            </button>
-          </div>
+            Try again
+          </button>
         </div>
-      }
+      } @else {
+        <router-outlet />
 
-      <app-bottom-nav />
+        @if (showDemoBanner()) {
+          <div
+            class="pointer-events-none fixed bottom-0 left-1/2 z-30 w-full max-w-[430px] -translate-x-1/2 px-3"
+            style="padding-bottom: calc(var(--safe-bottom) + 5.25rem)"
+          >
+            <div
+              class="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface/95 py-2 pr-2 pl-4 backdrop-blur"
+            >
+              <span class="flex-1 text-[0.85rem] text-ink-muted">Demo mode enabled</span>
+              <button
+                type="button"
+                class="min-h-[2.25rem] rounded-full bg-raised px-4 text-[0.85rem] font-semibold text-ink"
+                (click)="disableDemo()"
+              >
+                Disable
+              </button>
+              <button
+                type="button"
+                class="min-h-[2.25rem] rounded-full px-2 text-[0.85rem] text-ink-muted"
+                aria-label="Hide demo mode banner"
+                (click)="bannerDismissed.set(true)"
+              >
+                &#10005;
+              </button>
+            </div>
+          </div>
+        }
+
+        <app-bottom-nav />
+      }
     </div>
   `,
 })
 export class AppShell {
   private readonly router = inject(Router);
-  private readonly store = inject(BudgetStore);
+  protected readonly store = inject(BudgetStore);
   private readonly session = inject(SessionService);
 
   protected readonly bannerDismissed = signal(false);
@@ -106,5 +125,9 @@ export class AppShell {
 
   protected disableDemo(): void {
     this.store.setDemoMode(false);
+  }
+
+  protected retry(): void {
+    void this.session.retryWorkspace();
   }
 }

@@ -5,9 +5,9 @@ import type { Workspace } from './workspace';
 /**
  * Persistence ports.
  *
- * The application talks to these interfaces only, so the local storage adapter
- * used today can be swapped for a Firestore adapter (documented in
- * docs/firestore-adapter.md) without touching a component.
+ * The application talks to these interfaces only. Production uses the Firestore
+ * adapter; tests may provide an in-memory implementation. Browser storage is
+ * never used for application data.
  */
 export interface WorkspaceRepository {
   load(uid: string): Promise<Workspace | null>;
@@ -17,6 +17,7 @@ export interface WorkspaceRepository {
 
 export interface TransactionRepository {
   list(uid: string): Promise<Transaction[]>;
+  get(uid: string, transactionId: string): Promise<Transaction | null>;
   upsert(uid: string, transaction: Transaction): Promise<void>;
   remove(uid: string, transactionId: string): Promise<void>;
 }

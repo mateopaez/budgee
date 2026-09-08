@@ -10,9 +10,12 @@ const MAIN_TABS = ['/budgee', '/overview', '/budget', '/save', '/tools'];
 /**
  * Bridges Firebase Auth and the workspace store.
  *
- * When a user signs in their own workspace is loaded (scoped by uid); when they
- * sign out the in memory workspace is dropped immediately so nothing leaks into
- * the next session.
+ * When a user signs in their own Firestore workspace is loaded (scoped by uid);
+ * when they sign out the in memory workspace is dropped immediately so nothing
+ * leaks into the next session. Application data never uses browser storage.
+ *
+ * The last-tab preference is UI chrome only (which bottom tab to reopen) and is
+ * not Budgee financial data.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionService {
@@ -25,7 +28,7 @@ export class SessionService {
 
   readonly loading = this.loadingSignal.asReadonly();
 
-  /** True once auth has settled and, when signed in, the workspace is loaded. */
+  /** True once auth has settled and, when signed in, the workspace load finished. */
   readonly ready = computed(() => {
     const status = this.auth.status();
     if (status === 'initialising') return false;
@@ -47,6 +50,7 @@ export class SessionService {
   readonly needsOnboarding = computed(() => {
     if (!this.auth.isAuthenticated()) return false;
     if (!this.ready()) return false;
+    if (this.store.status() === 'error') return false;
     const workspace = this.store.workspace();
     return workspace === null || !workspace.onboardingCompleted;
   });
@@ -70,8 +74,22 @@ export class SessionService {
     this.loadingSignal.set(true);
     try {
       await this.store.loadFor(identity);
-      this.loadedUidSignal.set(identity.uid);
+    } catch {
+      // BudgetStore already records the error; mark the uid loaded so guards settle.
     } finally {
+      this.loadedUidSignal.set(identity.uid);
+      this.loadingSignal.set(false);
+    }
+  }
+
+  async retryWorkspace(): Promise<void> {
+    const identity = this.identity();
+    if (!identity) return;
+    this.loadingSignal.set(true);
+    try {
+      await this.store.retryLoad(identity);
+    } finally {
+      this.loadedUidSignal.set(identity.uid);
       this.loadingSignal.set(false);
     }
   }

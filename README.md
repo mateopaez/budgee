@@ -41,9 +41,9 @@ signed in user. Deploy them with:
 npx firebase deploy --only firestore:rules
 ```
 
-Data persistence in this MVP is browser local storage, namespaced per Firebase
-Auth uid. See `docs/firestore-adapter.md` for the pending Firestore adapter and
-the target document layout.
+Application data persists in Cloud Firestore under `users/{uid}`. See
+`docs/firestore-adapter.md` for the document layout, hosting SPA rewrites, and
+console setup steps. Angular Signals hold in-memory state only.
 
 ## Scripts
 
@@ -59,12 +59,12 @@ npm test         # Vitest unit tests
 src/app/
   core/
     auth/        Firebase Auth service, friendly error mapping, route guards
-    data/        category taxonomy, demo dataset, repository ports, local adapter
-    firebase/    Firebase app initialisation
+    data/        category taxonomy, demo dataset, repository ports, Firestore adapter
+    firebase/    Firebase app and Firestore initialisation
     models/      domain models (Transaction, Budget, Wallet, Category, ...)
     state/       the signal store and the auth/workspace session bridge
     util/        pure functions: dates, currency, budget periods, budget maths,
-                 grouping and recurring payment detection
+                 grouping, wallet balances and recurring payment detection
   features/      one folder per area: auth, shell, buddy, overview, budget,
                  save, tools, transactions, weekly-summary
   shared/

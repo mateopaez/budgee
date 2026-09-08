@@ -114,6 +114,21 @@ interface ToolCard {
       </button>
 
       <p class="mt-5 text-center text-[0.82rem] text-ink-faint">Budgee MVP 0.1</p>
+
+      @if (store.status() === 'seeding') {
+        <p class="mt-3 text-center text-[0.9rem] text-ink-muted" role="status" aria-live="polite">
+          Updating your Firestore data…
+        </p>
+      }
+      @if (store.error(); as message) {
+        <p
+          class="mt-3 rounded-2xl border px-4 py-3 text-center text-[0.9rem]"
+          style="border-color: color-mix(in srgb, var(--color-negative) 40%, transparent); color: #ffa9ac"
+          role="alert"
+        >
+          {{ message }}
+        </p>
+      }
     </main>
 
     @if (resetOpen()) {
@@ -128,7 +143,7 @@ interface ToolCard {
   `,
 })
 export class ToolsPage {
-  private readonly store = inject(BudgetStore);
+  protected readonly store = inject(BudgetStore);
   private readonly session = inject(SessionService);
   private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
@@ -241,13 +256,17 @@ export class ToolsPage {
     const confirmed = await this.confirm.ask({
       title: demo ? 'Restore the demo dataset?' : 'Clear all your data?',
       message: demo
-        ? 'Your current transactions, wallets and budgets are replaced by the seeded demo workspace. This only affects your own account.'
-        : 'Every transaction, wallet and budget in your account is removed. Your sign in details are untouched. This cannot be undone.',
+        ? 'Your current transactions, wallets and budgets in Firestore are replaced by the seeded demo workspace. This only affects your own account.'
+        : 'Every transaction, wallet and budget in your Firestore account is removed. Your sign in details are untouched. This cannot be undone.',
       confirmLabel: demo ? 'Restore demo data' : 'Clear everything',
     });
     if (!confirmed) return;
-    if (demo) await this.store.resetToDemo();
-    else await this.store.resetToEmpty();
+    try {
+      if (demo) await this.store.resetToDemo();
+      else await this.store.resetToEmpty();
+    } catch {
+      // BudgetStore surfaces the error for the tools page alert.
+    }
   }
 
   protected async signOut(): Promise<void> {

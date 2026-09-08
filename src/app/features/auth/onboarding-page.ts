@@ -3,11 +3,12 @@ import { Router } from '@angular/router';
 import { AuthLayout } from './auth-layout';
 import { AuthService } from '../../core/auth/auth.service';
 import { SessionService } from '../../core/state/session.service';
+import { BudgetStore } from '../../core/state/budget-store';
 import { Icon } from '../../shared/ui/icon';
 
 /**
  * One decision: start from a seeded demo workspace, or start from nothing.
- * Either choice writes only into the signed in user's own workspace.
+ * Either choice writes only into the signed in user's own Firestore documents.
  */
 @Component({
   selector: 'app-onboarding-page',
@@ -70,6 +71,22 @@ import { Icon } from '../../shared/ui/icon';
         <p class="rounded-2xl border border-line bg-surface px-4 py-3 text-[0.85rem] text-ink-muted">
           Bank sync is coming soon. For now you add transactions manually or use demo data.
         </p>
+
+        @if (busy()) {
+          <p class="text-center text-[0.9rem] text-ink-muted" role="status" aria-live="polite">
+            {{ choice() === 'demo' ? 'Seeding your demo data into Firestore…' : 'Setting up your account…' }}
+          </p>
+        }
+
+        @if (error(); as message) {
+          <p
+            class="rounded-2xl border px-4 py-3 text-[0.9rem]"
+            style="border-color: color-mix(in srgb, var(--color-negative) 40%, transparent); color: #ffa9ac"
+            role="alert"
+          >
+            {{ message }}
+          </p>
+        }
       </div>
 
       <div authFooter class="mt-8">
@@ -79,7 +96,7 @@ import { Icon } from '../../shared/ui/icon';
           [disabled]="busy()"
           (click)="start()"
         >
-          {{ busy() ? 'Setting things up...' : 'Continue' }}
+          {{ busy() ? 'Setting things up...' : error() ? 'Try again' : 'Continue' }}
         </button>
       </div>
     </app-auth-layout>
@@ -88,10 +105,12 @@ import { Icon } from '../../shared/ui/icon';
 export class OnboardingPage {
   private readonly auth = inject(AuthService);
   private readonly session = inject(SessionService);
+  private readonly store = inject(BudgetStore);
   private readonly router = inject(Router);
 
   protected readonly choice = signal<'demo' | 'manual'>('demo');
   protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
 
   protected firstName(): string {
     const name = this.auth.user()?.displayName?.trim();
@@ -102,9 +121,15 @@ export class OnboardingPage {
 
   protected async start(): Promise<void> {
     this.busy.set(true);
+    this.error.set(null);
     try {
       await this.session.startWorkspace(this.choice());
       await this.router.navigateByUrl(this.choice() === 'demo' ? '/overview' : '/budgee');
+    } catch {
+      this.error.set(
+        this.store.error() ??
+          'Could not save your workspace to Firestore. Check your connection and try again.',
+      );
     } finally {
       this.busy.set(false);
     }

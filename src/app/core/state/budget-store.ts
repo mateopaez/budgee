@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   Budget,
   Category,
@@ -8,10 +8,8 @@ import type {
   UserPreferences,
   Wallet,
 } from '../models';
-import { LocalWorkspaceRepository } from '../data/local-workspace.repository';
+import { FirestoreWorkspaceRepository } from '../data/firestore-workspace.repository';
 import {
-  createDemoWorkspace,
-  createEmptyWorkspace,
   type Workspace,
   type WorkspaceIdentity,
 } from '../data/workspace';
@@ -21,26 +19,31 @@ import { toIsoDate, type IsoDate } from '../util/date.util';
 import { periodContaining, shiftPeriod } from '../util/budget-period.util';
 import { computeBudgetSummary, type BudgetSummary } from '../util/budget-calc.util';
 import { detectRecurringPayments } from '../util/recurring.util';
+import { computeWalletBalances } from '../util/wallet-balance.util';
+
+export type StoreStatus = 'idle' | 'loading' | 'ready' | 'error' | 'seeding';
 
 /**
  * The single application store.
  *
- * Every screen reads from these signals, and every mutation goes through one of
- * the methods below, so a transaction edit is reflected in the feed, the
- * charts, the calendar and every budget figure in the same change detection
- * pass.
+ * Signals hold in-memory state hydrated from Firestore after authentication.
+ * Mutations write to Firestore first (or in parallel with an optimistic local
+ * update), never to browser persistent storage.
  */
 @Injectable({ providedIn: 'root' })
 export class BudgetStore {
-  private readonly repository = inject(LocalWorkspaceRepository);
+  private readonly repository = inject(FirestoreWorkspaceRepository);
 
   private readonly workspaceSignal = signal<Workspace | null>(null);
-  private readonly statusSignal = signal<'idle' | 'loading' | 'ready'>('idle');
-  /** Offset in whole budget periods from the period containing today. */
+  private readonly statusSignal = signal<StoreStatus>('idle');
+  private readonly errorSignal = signal<string | null>(null);
   private readonly periodOffsetSignal = signal(0);
+  private stopListening: (() => void) | null = null;
+  private activeUid: string | null = null;
 
   readonly workspace = this.workspaceSignal.asReadonly();
   readonly status = this.statusSignal.asReadonly();
+  readonly error = this.errorSignal.asReadonly();
   readonly ready = computed(() => this.statusSignal() === 'ready' && this.workspaceSignal() !== null);
 
   readonly preferences = computed<UserPreferences | null>(
@@ -57,6 +60,7 @@ export class BudgetStore {
   readonly linkedAccounts = computed(() => this.workspaceSignal()?.linkedAccounts ?? []);
   readonly onboardingCompleted = computed(() => this.workspaceSignal()?.onboardingCompleted ?? false);
   readonly demoMode = computed(() => this.workspaceSignal()?.preferences.demoMode ?? false);
+  readonly dataMode = computed(() => this.workspaceSignal()?.dataMode ?? null);
 
   readonly categoriesById = computed(() => new Map(this.categories().map((c) => [c.id, c])));
   readonly groupsById = computed(() => new Map(this.groups().map((g) => [g.id, g])));
@@ -119,80 +123,90 @@ export class BudgetStore {
   );
 
   /** Wallet balance = opening balance plus every movement recorded since. */
-  readonly walletBalances = computed<ReadonlyMap<string, number>>(() => {
-    const balances = new Map<string, number>();
-    for (const wallet of this.wallets()) balances.set(wallet.id, wallet.openingBalanceCents);
-    for (const tx of this.transactions()) {
-      if (tx.type === 'expense' && tx.fromWalletId) {
-        balances.set(tx.fromWalletId, (balances.get(tx.fromWalletId) ?? 0) - tx.amountCents);
-      } else if (tx.type === 'income' && tx.toWalletId) {
-        balances.set(tx.toWalletId, (balances.get(tx.toWalletId) ?? 0) + tx.amountCents);
-      } else if (tx.type === 'transfer') {
-        if (tx.fromWalletId) {
-          balances.set(tx.fromWalletId, (balances.get(tx.fromWalletId) ?? 0) - tx.amountCents);
-        }
-        if (tx.toWalletId) {
-          balances.set(tx.toWalletId, (balances.get(tx.toWalletId) ?? 0) + tx.amountCents);
-        }
-      }
-    }
-    return balances;
-  });
-
-  constructor() {
-    // Persist on every change once the workspace has been loaded.
-    effect(() => {
-      const workspace = this.workspaceSignal();
-      if (!workspace || this.statusSignal() !== 'ready') return;
-      void this.repository.save(workspace);
-    });
-  }
+  readonly walletBalances = computed<ReadonlyMap<string, number>>(() =>
+    computeWalletBalances(this.wallets(), this.transactions()),
+  );
 
   // ---------------------------------------------------------------- lifecycle
 
-  /** Loads the stored workspace for a uid, or null when the user is new. */
+  /** Loads and listens to the Firestore workspace for a uid. */
   async loadFor(identity: WorkspaceIdentity): Promise<Workspace | null> {
+    this.errorSignal.set(null);
     this.statusSignal.set('loading');
-    const stored = await this.repository.load(identity.uid);
-    if (stored) {
-      this.workspaceSignal.set({
-        ...stored,
-        displayName: identity.displayName || stored.displayName,
-        email: identity.email || stored.email,
-      });
+    this.teardownListener();
+    this.activeUid = identity.uid;
+
+    try {
+      const stored = await this.repository.load(identity.uid);
+      if (stored) {
+        this.workspaceSignal.set({
+          ...stored,
+          displayName: identity.displayName || stored.displayName,
+          email: identity.email || stored.email,
+        });
+      } else {
+        this.workspaceSignal.set(null);
+      }
       this.statusSignal.set('ready');
+      this.startListener(identity);
       return stored;
+    } catch (error) {
+      this.statusSignal.set('error');
+      this.errorSignal.set(friendlyStoreError(error));
+      this.workspaceSignal.set(null);
+      throw error;
     }
-    this.workspaceSignal.set(null);
-    this.statusSignal.set('ready');
-    return null;
   }
 
   unload(): void {
+    this.teardownListener();
+    this.activeUid = null;
     this.workspaceSignal.set(null);
     this.statusSignal.set('idle');
+    this.errorSignal.set(null);
     this.periodOffsetSignal.set(0);
+  }
+
+  async retryLoad(identity: WorkspaceIdentity): Promise<void> {
+    await this.loadFor(identity);
   }
 
   /** Creates and stores a fresh workspace. Used by onboarding. */
   async initialise(identity: WorkspaceIdentity, mode: 'demo' | 'manual'): Promise<void> {
-    const createdAt = new Date().toISOString();
-    const workspace =
-      mode === 'demo'
-        ? createDemoWorkspace(identity, createdAt)
-        : createEmptyWorkspace(identity, createdAt);
-    this.statusSignal.set('ready');
-    this.workspaceSignal.set(workspace);
-    await this.repository.save(workspace);
+    this.errorSignal.set(null);
+    this.statusSignal.set('seeding');
+    this.teardownListener();
+    this.activeUid = identity.uid;
+    try {
+      const workspace = await this.repository.seed(identity, mode, { force: false });
+      this.workspaceSignal.set(workspace);
+      this.statusSignal.set('ready');
+      this.startListener(identity);
+    } catch (error) {
+      this.statusSignal.set('error');
+      this.errorSignal.set(friendlyStoreError(error));
+      throw error;
+    }
   }
 
-  /** Restores the seeded demo dataset for the current user. */
+  /** Restores the seeded demo dataset for the current user only. */
   async resetToDemo(): Promise<void> {
     const ws = this.workspaceSignal();
     if (!ws) return;
     const identity = { uid: ws.uid, displayName: ws.displayName, email: ws.email };
+    this.errorSignal.set(null);
+    this.statusSignal.set('seeding');
     this.periodOffsetSignal.set(0);
-    this.workspaceSignal.set(createDemoWorkspace(identity, ws.createdAt));
+    try {
+      const workspace = await this.repository.seed(identity, 'demo', { force: true });
+      this.workspaceSignal.set(workspace);
+      this.statusSignal.set('ready');
+      this.startListener(identity);
+    } catch (error) {
+      this.statusSignal.set('error');
+      this.errorSignal.set(friendlyStoreError(error));
+      throw error;
+    }
   }
 
   /** Clears all app data for the current user but keeps the account. */
@@ -200,11 +214,19 @@ export class BudgetStore {
     const ws = this.workspaceSignal();
     if (!ws) return;
     const identity = { uid: ws.uid, displayName: ws.displayName, email: ws.email };
+    this.errorSignal.set(null);
+    this.statusSignal.set('seeding');
     this.periodOffsetSignal.set(0);
-    this.workspaceSignal.set({
-      ...createEmptyWorkspace(identity, ws.createdAt),
-      onboardingCompleted: true,
-    });
+    try {
+      const workspace = await this.repository.seed(identity, 'manual', { force: true });
+      this.workspaceSignal.set(workspace);
+      this.statusSignal.set('ready');
+      this.startListener(identity);
+    } catch (error) {
+      this.statusSignal.set('error');
+      this.errorSignal.set(friendlyStoreError(error));
+      throw error;
+    }
   }
 
   // ---------------------------------------------------------------- mutations
@@ -235,25 +257,47 @@ export class BudgetStore {
       updatedAt: now,
     };
     this.patch((ws) => ({ ...ws, transactions: [transaction, ...ws.transactions] }));
+    if (this.activeUid) {
+      void this.persist(() =>
+        this.repository.upsertTransaction(this.activeUid as string, transaction),
+      );
+    }
     return transaction;
   }
 
   updateTransaction(id: string, draft: TransactionDraft): void {
     const now = new Date().toISOString();
+    let updated: Transaction | null = null;
     this.patch((ws) => ({
       ...ws,
-      transactions: ws.transactions.map((t) =>
-        t.id === id ? { ...t, ...draft, needsReview: false, updatedAt: now } : t,
-      ),
+      transactions: ws.transactions.map((t) => {
+        if (t.id !== id) return t;
+        updated = { ...t, ...draft, needsReview: false, updatedAt: now };
+        return updated;
+      }),
     }));
+    if (updated && this.activeUid) {
+      const tx = updated;
+      void this.persist(() => this.repository.upsertTransaction(this.activeUid as string, tx));
+    }
   }
 
   deleteTransaction(id: string): void {
     this.patch((ws) => ({ ...ws, transactions: ws.transactions.filter((t) => t.id !== id) }));
+    if (this.activeUid) {
+      void this.persist(() => this.repository.removeTransaction(this.activeUid as string, id));
+    }
   }
 
   transactionById(id: string): Transaction | undefined {
     return this.transactions().find((t) => t.id === id);
+  }
+
+  async fetchTransaction(id: string): Promise<Transaction | null> {
+    const local = this.transactionById(id);
+    if (local) return local;
+    if (!this.activeUid) return null;
+    return this.repository.getTransaction(this.activeUid, id);
   }
 
   upsertCategory(category: Category): void {
@@ -266,20 +310,42 @@ export class BudgetStore {
           : [...ws.categories, category],
       };
     });
+    if (this.activeUid) {
+      void this.persist(() => this.repository.upsertCategory(this.activeUid as string, category));
+    }
   }
 
   deleteCategory(id: string, replacementId: string): void {
-    this.patch((ws) => ({
-      ...ws,
-      categories: ws.categories.filter((c) => c.id !== id),
-      transactions: ws.transactions.map((t) =>
-        t.categoryId === id ? { ...t, categoryId: replacementId } : t,
-      ),
-      budgets: ws.budgets.map((b) => ({
-        ...b,
-        plans: b.plans.filter((p) => p.categoryId !== id),
-      })),
-    }));
+    let touched: Transaction[] = [];
+    this.patch((ws) => {
+      touched = ws.transactions.filter((t) => t.categoryId === id);
+      return {
+        ...ws,
+        categories: ws.categories.filter((c) => c.id !== id),
+        transactions: ws.transactions.map((t) =>
+          t.categoryId === id ? { ...t, categoryId: replacementId } : t,
+        ),
+        budgets: ws.budgets.map((b) => ({
+          ...b,
+          plans: b.plans.filter((p) => p.categoryId !== id),
+        })),
+      };
+    });
+    if (!this.activeUid) return;
+    const uid = this.activeUid;
+    void this.persist(async () => {
+      await this.repository.removeCategory(uid, id);
+      for (const tx of touched) {
+        await this.repository.upsertTransaction(uid, {
+          ...tx,
+          categoryId: replacementId,
+        });
+      }
+      const budgets = this.workspaceSignal()?.budgets ?? [];
+      for (const budget of budgets) {
+        await this.repository.upsertBudget(uid, budget);
+      }
+    });
   }
 
   upsertWallet(wallet: Wallet): void {
@@ -292,18 +358,39 @@ export class BudgetStore {
           : [...ws.wallets, wallet],
       };
     });
+    if (this.activeUid) {
+      void this.persist(() => this.repository.upsertWallet(this.activeUid as string, wallet));
+    }
   }
 
   deleteWallet(id: string): void {
-    this.patch((ws) => ({
-      ...ws,
-      wallets: ws.wallets.filter((w) => w.id !== id),
-      transactions: ws.transactions.map((t) => ({
-        ...t,
-        fromWalletId: t.fromWalletId === id ? null : t.fromWalletId,
-        toWalletId: t.toWalletId === id ? null : t.toWalletId,
-      })),
-    }));
+    let touched: Transaction[] = [];
+    this.patch((ws) => {
+      touched = ws.transactions.filter(
+        (t) => t.fromWalletId === id || t.toWalletId === id,
+      );
+      return {
+        ...ws,
+        wallets: ws.wallets.filter((w) => w.id !== id),
+        transactions: ws.transactions.map((t) => ({
+          ...t,
+          fromWalletId: t.fromWalletId === id ? null : t.fromWalletId,
+          toWalletId: t.toWalletId === id ? null : t.toWalletId,
+        })),
+      };
+    });
+    if (!this.activeUid) return;
+    const uid = this.activeUid;
+    void this.persist(async () => {
+      await this.repository.removeWallet(uid, id);
+      for (const tx of touched) {
+        await this.repository.upsertTransaction(uid, {
+          ...tx,
+          fromWalletId: tx.fromWalletId === id ? null : tx.fromWalletId,
+          toWalletId: tx.toWalletId === id ? null : tx.toWalletId,
+        });
+      }
+    });
   }
 
   saveBudget(budget: Budget): void {
@@ -317,27 +404,57 @@ export class BudgetStore {
         activeBudgetId: ws.activeBudgetId ?? budget.id,
       };
     });
+    if (!this.activeUid) return;
+    const uid = this.activeUid;
+    const activeBudgetId = this.workspaceSignal()?.activeBudgetId ?? budget.id;
+    void this.persist(async () => {
+      await this.repository.upsertBudget(uid, budget);
+      await this.repository.updateProfile(uid, { activeBudgetId });
+    });
   }
 
   deleteBudget(id: string): void {
+    let nextActive: string | null = null;
     this.patch((ws) => {
       const budgets = ws.budgets.filter((b) => b.id !== id);
+      nextActive = ws.activeBudgetId === id ? (budgets[0]?.id ?? null) : ws.activeBudgetId;
       return {
         ...ws,
         budgets,
-        activeBudgetId: ws.activeBudgetId === id ? (budgets[0]?.id ?? null) : ws.activeBudgetId,
+        activeBudgetId: nextActive,
       };
     });
     this.periodOffsetSignal.set(0);
+    if (!this.activeUid) return;
+    const uid = this.activeUid;
+    void this.persist(async () => {
+      await this.repository.removeBudget(uid, id);
+      await this.repository.updateProfile(uid, { activeBudgetId: nextActive });
+    });
   }
 
   setActiveBudget(id: string): void {
     this.periodOffsetSignal.set(0);
     this.patch((ws) => ({ ...ws, activeBudgetId: id }));
+    if (this.activeUid) {
+      void this.persist(() =>
+        this.repository.updateProfile(this.activeUid as string, { activeBudgetId: id }),
+      );
+    }
   }
 
   updatePreferences(patch: Partial<UserPreferences>): void {
-    this.patch((ws) => ({ ...ws, preferences: { ...ws.preferences, ...patch } }));
+    let next: UserPreferences | null = null;
+    this.patch((ws) => {
+      next = { ...ws.preferences, ...patch };
+      return { ...ws, preferences: next };
+    });
+    if (next && this.activeUid) {
+      const preferences = next;
+      void this.persist(() =>
+        this.repository.updateProfile(this.activeUid as string, { preferences }),
+      );
+    }
   }
 
   setDemoMode(enabled: boolean): void {
@@ -346,9 +463,68 @@ export class BudgetStore {
 
   completeOnboarding(): void {
     this.patch((ws) => ({ ...ws, onboardingCompleted: true }));
+    if (this.activeUid) {
+      void this.persist(() =>
+        this.repository.updateProfile(this.activeUid as string, { onboardingCompleted: true }),
+      );
+    }
   }
 
   setConnections(connections: Workspace['connections']): void {
     this.patch((ws) => ({ ...ws, connections }));
+    if (this.activeUid) {
+      const linked = this.workspaceSignal()?.linkedAccounts ?? [];
+      void this.persist(() =>
+        this.repository.setConnections(this.activeUid as string, connections, linked),
+      );
+    }
   }
+
+  // ---------------------------------------------------------------- private
+
+  private startListener(identity: WorkspaceIdentity): void {
+    this.teardownListener();
+    this.stopListening = this.repository.listen(
+      identity.uid,
+      (workspace) => {
+        if (this.activeUid !== identity.uid) return;
+        if (workspace) {
+          this.workspaceSignal.set({
+            ...workspace,
+            displayName: identity.displayName || workspace.displayName,
+            email: identity.email || workspace.email,
+          });
+          if (this.statusSignal() === 'loading' || this.statusSignal() === 'seeding') {
+            this.statusSignal.set('ready');
+          }
+        } else if (this.statusSignal() !== 'seeding') {
+          this.workspaceSignal.set(null);
+        }
+      },
+      (error) => {
+        this.errorSignal.set(friendlyStoreError(error));
+        this.statusSignal.set('error');
+      },
+    );
+  }
+
+  private teardownListener(): void {
+    this.stopListening?.();
+    this.stopListening = null;
+    this.repository.stopListening();
+  }
+
+  private async persist(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+    } catch (error) {
+      this.errorSignal.set(friendlyStoreError(error));
+      // Keep the optimistic local state visible; the user can retry or refresh.
+    }
+  }
+}
+
+function friendlyStoreError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return 'Something went wrong talking to Firestore. Check your connection and try again.';
 }

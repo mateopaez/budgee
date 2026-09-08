@@ -1,63 +1,80 @@
-# Firestore adapter (pending)
+# Firestore persistence
 
-Budgee's MVP persists each signed in user's workspace in browser local storage,
-namespaced by Firebase Auth uid
-(`budgee:v1:workspace:{uid}` in `LocalWorkspaceRepository`). Authentication is
-already live against the existing Firebase project; only the data adapter is
-still local.
+Budgee stores every authenticated user's application data in Cloud Firestore
+under `users/{uid}`. Firebase Auth handles session persistence; Angular Signals
+hold in-memory state only after the signed-in user is known.
 
-## Why local first
-
-The application never talks to storage directly. It talks to the ports in
-`src/app/core/data/repository.ts`:
-
-- `WorkspaceRepository` - load, save and clear one user's whole workspace
-- `TransactionRepository`, `WalletRepository` - narrow ports for a future
-  per document adapter
-- `FinancialDataProvider` - read side port for a future aggregation provider
-
-Swapping storage means providing a different implementation of
-`WorkspaceRepository` (or the narrow ports) at the injector. No component,
-computation or template changes.
-
-## Target document layout
-
-All records are scoped by uid. The shape mirrors the local namespacing, so the
-migration is mechanical:
+## Document layout
 
 ```
-users/{uid}                                    profile + preferences + activeBudgetId
+users/{uid}                                    profile + preferences + flags
 users/{uid}/transactions/{transactionId}
 users/{uid}/wallets/{walletId}
 users/{uid}/categories/{categoryId}
 users/{uid}/categoryGroups/{groupId}
 users/{uid}/budgets/{budgetId}
+users/{uid}/connections/{connectionId}
+users/{uid}/linkedAccounts/{accountId}
 users/{uid}/recurringPayments/{recurringPaymentId}
 ```
 
-`firestore.rules` in the repository root already enforces this: a request is
-allowed only when `request.auth.uid` matches the `{uid}` segment, and everything
-outside a user subtree is denied.
+Recurring payments are currently derived from transaction history in the client.
+The `recurringPayments` collection is reserved and owner-scoped in security rules.
 
-Deploy the rules with:
+## Profile shape (`users/{uid}`)
+
+```ts
+{
+  displayName: string | null;
+  email: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  onboardingCompleted: boolean;
+  activeBudgetId: string | null;
+  dataMode: 'demo' | 'manual';
+  demoSeededAt?: Timestamp | null;
+  preferences: UserPreferences;
+}
+```
+
+## Security rules
+
+`firestore.rules` allows read/write only when `request.auth.uid` matches the
+`{uid}` path segment. Deploy with:
 
 ```bash
 npx firebase deploy --only firestore:rules
 ```
 
-## Migration steps when Firestore is enabled
+## Hosting (SPA deep links)
 
-1. Enable Cloud Firestore in the Firebase console for `budgee-43d31`.
-2. Deploy `firestore.rules`.
-3. Add `FirestoreWorkspaceRepository implements WorkspaceRepository` that reads
-   the documents above with the modular `firebase/firestore` SDK, mapping each
-   collection into the existing `Workspace` shape.
-4. Provide it in `app.config.ts` in place of `LocalWorkspaceRepository`.
-5. On first sign in after the switch, read the local workspace once and write it
-   up as a one time migration, then clear the local copy.
+`firebase.json` rewrites all non-file routes to `index.html` so Angular routes
+such as `/transactions/:id/edit` work on refresh and direct open. Deploy with:
 
-## What is deliberately not done yet
+```bash
+npx firebase deploy --only hosting
+```
 
-- No offline sync or conflict resolution. The store is the single writer.
-- No shared or household budgets. `Budget` has no members collection.
-- No server side rendering of user data; every screen renders on the client.
+Public output directory: `dist/budgee/browser` (Angular production build).
+
+## Console setup still required
+
+1. Enable **Cloud Firestore** for project `budgee-43d31` (Native mode).
+2. Deploy `firestore.rules` (command above).
+3. Ensure Auth providers (Google, Email/Password) remain enabled.
+4. No composite indexes are required for the current queries (collection reads
+   under `users/{uid}/...` without compound `where`/`orderBy` combinations).
+
+## Wallet balances
+
+Wallets store `openingBalanceCents` only. Current balances are always derived
+from the transaction ledger via `computeWalletBalances` and are never written
+back to Firestore as a second source of truth.
+
+## What is deliberately not done
+
+- No offline sync or conflict resolution.
+- No shared / household budgets.
+- No Plaid, CSV import, Cloud Functions, or server endpoints.
+- No one-time localStorage → Firestore migration (local app data storage was
+  removed; users re-onboard against Firestore).

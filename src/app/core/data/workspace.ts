@@ -8,7 +8,7 @@ import type {
   UserPreferences,
   Wallet,
 } from '../models';
-import { CATEGORY_IDS, DEFAULT_CATEGORIES, DEFAULT_GROUPS } from './taxonomy';
+import { DEFAULT_CATEGORIES, DEFAULT_GROUPS } from './taxonomy';
 import {
   DEMO_BUDGET_ID,
   defaultPreferences,
@@ -25,10 +25,11 @@ import {
 /** Schema version so a future migration can recognise older stored payloads. */
 export const WORKSPACE_VERSION = 1;
 
+export type WorkspaceDataMode = 'demo' | 'manual';
+
 /**
- * Everything one signed in user owns. The whole workspace is loaded into
- * signals at startup and written back on change, which keeps the UI layer free
- * of persistence concerns.
+ * Everything one signed in user owns. The whole workspace is hydrated into
+ * signals after authentication; Firestore is the only persistent store.
  */
 export interface Workspace {
   readonly version: number;
@@ -36,8 +37,11 @@ export interface Workspace {
   readonly displayName: string;
   readonly email: string;
   readonly createdAt: string;
+  readonly updatedAt: string;
   readonly onboardingCompleted: boolean;
   readonly activeBudgetId: string | null;
+  readonly dataMode: WorkspaceDataMode;
+  readonly demoSeededAt: string | null;
   readonly preferences: UserPreferences;
   readonly groups: readonly CategoryGroup[];
   readonly categories: readonly Category[];
@@ -54,7 +58,7 @@ export interface WorkspaceIdentity {
   readonly email: string;
 }
 
-/** A brand new user with the default taxonomy, one wallet and no transactions. */
+/** A brand new user with the default taxonomy, two wallets and no transactions. */
 export function createEmptyWorkspace(identity: WorkspaceIdentity, createdAt: string): Workspace {
   const preferences = { ...defaultPreferences(), demoMode: false };
   return {
@@ -63,8 +67,11 @@ export function createEmptyWorkspace(identity: WorkspaceIdentity, createdAt: str
     displayName: identity.displayName,
     email: identity.email,
     createdAt,
-    onboardingCompleted: false,
+    updatedAt: createdAt,
+    onboardingCompleted: true,
     activeBudgetId: null,
+    dataMode: 'manual',
+    demoSeededAt: null,
     preferences,
     groups: [...DEFAULT_GROUPS],
     categories: [...DEFAULT_CATEGORIES],
@@ -101,8 +108,11 @@ export function createDemoWorkspace(identity: WorkspaceIdentity, createdAt: stri
     displayName: identity.displayName,
     email: identity.email,
     createdAt,
+    updatedAt: createdAt,
     onboardingCompleted: true,
     activeBudgetId: DEMO_BUDGET_ID,
+    dataMode: 'demo',
+    demoSeededAt: createdAt,
     preferences: defaultPreferences(),
     groups: demoGroups(),
     categories: demoCategories(),
@@ -113,5 +123,3 @@ export function createDemoWorkspace(identity: WorkspaceIdentity, createdAt: stri
     linkedAccounts: demoLinkedAccounts(),
   };
 }
-
-export const FALLBACK_CATEGORY_IDS = CATEGORY_IDS;

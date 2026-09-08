@@ -23,7 +23,7 @@ import type { Transaction } from '../../core/models';
     <main
       class="flex-1 px-4"
       [style.padding-top]="'calc(var(--safe-top) + 1rem)'"
-      [style.padding-bottom]="transactions().length > 0 ? 'calc(var(--nav-clearance) + 4.5rem)' : 'var(--nav-clearance)'"
+      [style.padding-bottom]="'var(--nav-clearance)'"
     >
       <div class="flex justify-center">
         <app-status-pill
@@ -152,33 +152,6 @@ import type { Transaction } from '../../core/models';
       }
     </main>
 
-    @if (transactions().length > 0) {
-      <button
-        type="button"
-        class="fixed right-4 z-30 flex min-h-[3.25rem] items-center gap-2 rounded-full px-5 text-[1rem] font-semibold shadow-lg"
-        style="bottom: calc(var(--safe-bottom) + 9rem); background: var(--accent-gradient); color: var(--color-accent-ink)"
-        (click)="askOpen.set(!askOpen())"
-        [attr.aria-expanded]="askOpen()"
-      >
-        <app-icon name="message" [size]="20" />
-        Ask Budgee
-      </button>
-
-      @if (askOpen()) {
-        <div
-          class="fixed right-4 left-4 z-30 mx-auto max-w-[400px] rounded-[1.5rem] border border-line bg-raised p-4"
-          style="bottom: calc(var(--safe-bottom) + 12.75rem)"
-          role="status"
-        >
-          <p class="text-[0.9rem] leading-relaxed text-ink">{{ localInsight() }}</p>
-          <p class="mt-3 text-[0.78rem] text-ink-faint">
-            This is a local summary of your own numbers. A conversational assistant is not part of
-            this release.
-          </p>
-        </div>
-      }
-    }
-
     @if (sheetOpen()) {
       <app-connect-bank-sheet (close)="sheetOpen.set(false)" />
     }
@@ -190,7 +163,6 @@ export class BudgeePage {
   protected readonly session = inject(SessionService);
 
   protected readonly sheetOpen = signal(false);
-  protected readonly askOpen = signal(false);
 
   protected readonly transactions = this.store.transactions;
   protected readonly reviewCount = this.store.needsReviewCount;
@@ -208,18 +180,6 @@ export class BudgeePage {
 
   /** Most recent 40 transactions, grouped by day. */
   protected readonly feed = computed(() => groupByDay(this.transactions().slice(0, 40)));
-
-  protected readonly localInsight = computed(() => {
-    const summary = this.store.summary();
-    const recurring = this.store.recurringPayments();
-    if (!summary) {
-      return `You have ${this.transactions().length} transactions recorded. Create a budget to see how they compare with a plan.`;
-    }
-    const left = summary.leftToSpendCents;
-    const state = left >= 0 ? 'left to spend' : 'over your plan';
-    const amount = Math.abs(left / 100).toFixed(0);
-    return `You have $${amount} ${state} for ${summary.period.label}, and I can see ${recurring.length} recurring payments in your history.`;
-  });
 
   protected label(date: string): string {
     return relativeDayLabel(date, this.store.today());
