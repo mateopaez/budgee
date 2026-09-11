@@ -40,17 +40,18 @@ import type { IconName } from '../../shared/ui/icon-set';
         <app-line-chart
           [points]="spendPoints()"
           [comparison]="averageLine()"
+          [domainLength]="periodDayCount()"
           [ariaLabel]="'Running total spent during ' + periodLabel()"
         />
       </div>
-      <div class="mt-3 flex items-center gap-4 text-[0.8rem] text-ink-muted">
+      <div class="mt-3 flex items-center gap-5 text-[0.8rem] text-ink-muted">
         <span class="flex items-center gap-1.5">
-          <span class="size-2.5 rounded-full" style="background: var(--color-accent)"></span>
+          <span class="size-2 rounded-full" style="background: var(--color-accent)"></span>
           This period
         </span>
         <span class="flex items-center gap-1.5">
-          <span class="size-2.5 rounded-full bg-ink-faint"></span>
-          Even pace
+          <span class="size-2 rounded-full bg-ink-faint"></span>
+          Average
         </span>
       </div>
     </section>
@@ -288,6 +289,11 @@ export class OverviewTab {
       .reduce((sum, t) => sum + t.amountCents, 0);
   });
 
+  protected readonly periodDayCount = computed(() => {
+    const { start, end } = this.windowRange();
+    return Math.max(1, diffDays(start, end));
+  });
+
   protected readonly spendPoints = computed<LinePoint[]>(() => {
     const { start, end } = this.windowRange();
     const today = this.store.today();
@@ -297,11 +303,10 @@ export class OverviewTab {
     return points.map((p) => ({ label: `${p.dayOfMonth}`, value: p.cumulativeCents }));
   });
 
-  /** Dashed reference line: what an even pace through the period would look like. */
+  /** Dashed reference line: planned spend paced evenly across the period. */
   protected readonly averageLine = computed<number[]>(() => {
-    const { start, end } = this.windowRange();
+    const days = this.periodDayCount();
     const planned = this.summary()?.plannedExpenseCents ?? this.spentCents();
-    const days = Math.max(1, diffDays(start, end));
     return Array.from({ length: days }, (_, i) => (planned * (i + 1)) / days);
   });
 
