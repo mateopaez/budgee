@@ -17,7 +17,7 @@ import type { IconName } from './icon-set';
       [style.width.px]="size()"
       [style.height.px]="size()"
       [style.background]="solid() ? color() : 'color-mix(in srgb, ' + color() + ' 22%, transparent)'"
-      [style.color]="solid() ? '#0b1113' : color()"
+      [style.color]="solid() ? '#ffffff' : color()"
     >
       <app-icon [name]="icon()" [size]="size() * 0.5" [strokeWidth]="2" />
     </span>

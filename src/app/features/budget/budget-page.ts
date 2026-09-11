@@ -93,7 +93,7 @@ type TabId = 'plan' | 'remaining' | 'insights';
       </app-accent-header>
 
       <div
-        class="flex-1 px-4"
+        class="flex-1 px-4 pt-3"
         style="padding-bottom: var(--nav-clearance)"
         role="tabpanel"
         [attr.aria-labelledby]="'tab-' + tab()"

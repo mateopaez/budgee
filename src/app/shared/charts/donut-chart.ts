@@ -8,9 +8,7 @@ export interface DonutSegment {
 }
 
 interface RenderedSegment extends DonutSegment {
-  readonly dash: number;
-  readonly gap: number;
-  readonly offset: number;
+  readonly d: string;
 }
 
 /** Ring chart whose arcs are computed from the supplied values. */
@@ -22,28 +20,26 @@ interface RenderedSegment extends DonutSegment {
     <div class="relative mx-auto" [style.width.px]="size()" [style.height.px]="size()">
       <svg
         [attr.viewBox]="'0 0 ' + size() + ' ' + size()"
-        class="size-full -rotate-90"
+        class="size-full"
         role="img"
         [attr.aria-label]="ariaLabel()"
       >
-        <circle
-          [attr.cx]="center()"
-          [attr.cy]="center()"
-          [attr.r]="radius()"
-          fill="none"
-          stroke="var(--color-sunken)"
-          [attr.stroke-width]="thickness()"
-        />
-        @for (segment of rendered(); track segment.id) {
+        @if (rendered().length === 0) {
           <circle
             [attr.cx]="center()"
             [attr.cy]="center()"
             [attr.r]="radius()"
             fill="none"
+            stroke="var(--color-sunken)"
+            [attr.stroke-width]="thickness()"
+          />
+        }
+        @for (segment of rendered(); track segment.id) {
+          <path
+            [attr.d]="segment.d"
+            fill="none"
             [attr.stroke]="segment.color"
             [attr.stroke-width]="thickness()"
-            [attr.stroke-dasharray]="segment.dash + ' ' + segment.gap"
-            [attr.stroke-dashoffset]="segment.offset"
             [attr.stroke-linecap]="rounded() ? 'round' : 'butt'"
           />
         }
@@ -59,26 +55,52 @@ export class DonutChart {
   readonly size = input(190);
   readonly thickness = input(16);
   readonly rounded = input(true);
-  /** Fraction of the circle left empty between segments. */
-  readonly gapRatio = input(0.012);
+  /** Visible empty space between neighboring segments, as a fraction of the ring. */
+  readonly gapRatio = input(0.006);
   readonly ariaLabel = input('Category breakdown');
 
   protected readonly center = computed(() => this.size() / 2);
   protected readonly radius = computed(() => this.size() / 2 - this.thickness() / 2 - 2);
-  private readonly circumference = computed(() => 2 * Math.PI * this.radius());
 
   protected readonly rendered = computed<RenderedSegment[]>(() => {
     const list = this.segments().filter((s) => s.value > 0);
     const total = list.reduce((sum, s) => sum + s.value, 0);
     if (total <= 0) return [];
-    const c = this.circumference();
-    const gap = c * this.gapRatio();
-    let consumed = 0;
-    return list.map((segment) => {
-      const length = Math.max(0, (segment.value / total) * c - gap);
-      const offset = -consumed;
-      consumed += length + gap;
-      return { ...segment, dash: length, gap: c - length, offset };
-    });
+
+    const cx = this.center();
+    const cy = this.center();
+    const r = this.radius();
+    const multi = list.length > 1;
+    const gapAngle = multi ? this.gapRatio() * Math.PI * 2 : 0;
+    // Round caps sit on the path endpoints and extend along the arc by
+    // thickness/2, so inset the path by that amount on each end.
+    const capAngle = multi && this.rounded() ? this.thickness() / 2 / r : 0;
+
+    // Start at 12 o'clock; increasing angle draws clockwise in SVG coords.
+    let cursor = -Math.PI / 2;
+    const out: RenderedSegment[] = [];
+
+    for (const segment of list) {
+      const share = (segment.value / total) * Math.PI * 2;
+      const visualSpan = Math.max(0, share - gapAngle);
+      const pathStart = cursor + capAngle;
+      const pathEnd = cursor + visualSpan - capAngle;
+      cursor += share;
+
+      if (pathEnd - pathStart <= 0.001) continue;
+      out.push({ ...segment, d: arcPath(cx, cy, r, pathStart, pathEnd) });
+    }
+
+    return out;
   });
+}
+
+/** Open arc from start→end (radians). Sweep=1 = clockwise on screen in SVG. */
+function arcPath(cx: number, cy: number, r: number, start: number, end: number): string {
+  const x1 = cx + r * Math.cos(start);
+  const y1 = cy + r * Math.sin(start);
+  const x2 = cx + r * Math.cos(end);
+  const y2 = cy + r * Math.sin(end);
+  const large = end - start > Math.PI ? 1 : 0;
+  return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
 }

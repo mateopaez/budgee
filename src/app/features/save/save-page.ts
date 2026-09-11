@@ -16,7 +16,7 @@ import { yearlyBillsTotal } from '../../core/util/recurring.util';
   host: { class: 'flex min-h-[100dvh] flex-col' },
   template: `
     <header
-      class="relative overflow-hidden px-5 pb-10"
+      class="relative overflow-hidden px-5 pb-8"
       style="background: linear-gradient(160deg, #fdf0d8 0%, #fbe4b8 100%); padding-top: calc(var(--safe-top) + 2rem)"
     >
       <div
@@ -34,7 +34,7 @@ import { yearlyBillsTotal } from '../../core/util/recurring.util';
       </h1>
     </header>
 
-    <main class="-mt-6 flex-1 px-4" style="padding-bottom: var(--nav-clearance)">
+    <main class="mt-4 flex-1 px-4" style="padding-bottom: var(--nav-clearance)">
       <section class="rounded-[1.5rem] bg-raised p-5">
         <h2 class="text-[1.35rem] font-semibold text-ink">Lower your bills</h2>
         <p class="mt-1 text-[0.95rem] leading-relaxed text-ink-muted">

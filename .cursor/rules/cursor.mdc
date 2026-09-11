@@ -58,3 +58,7 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 - Design services around a single responsibility
 - Use the `providedIn: 'root'` option for singleton services
 - Use the `inject()` function instead of constructor injection
+
+
+## Comments
+- Do not make unneeded and session-based comments. Only keep highlevel comments pased on top level pages functionality.

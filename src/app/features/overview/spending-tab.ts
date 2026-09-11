@@ -11,6 +11,8 @@ import type { IconName } from '../../shared/ui/icon-set';
 type Lens = 'expense' | 'income';
 type Grain = 'groups' | 'categories';
 
+const MAX_RENDERED_ROWS = 5;
+
 interface SpendRow {
   readonly id: string;
   readonly name: string;
@@ -197,30 +199,44 @@ export class SpendingTab {
     const categories = this.store.categoriesById();
     const groups = this.store.groupsById();
     const type = this.lens();
-    if (this.grain() === 'groups') {
-      return totalsByGroup(this.periodTx(), type, (id) => categories.get(id)?.groupId).map(
-        (entry) => {
-          const group = groups.get(entry.categoryId);
-          return {
-            id: entry.categoryId,
-            name: group?.name ?? 'Other',
-            color: group?.color ?? 'var(--color-cat-misc)',
-            icon: 'box' as IconName,
-            totalCents: entry.totalCents,
-          };
-        },
-      );
-    }
-    return totalsByCategory(this.periodTx(), type).map((entry) => {
-      const category = categories.get(entry.categoryId);
-      return {
-        id: entry.categoryId,
-        name: category?.name ?? 'Uncategorised',
-        color: category?.color ?? 'var(--color-cat-misc)',
-        icon: (category?.icon ?? 'box') as IconName,
-        totalCents: entry.totalCents,
-      };
-    });
+    const all: SpendRow[] =
+      this.grain() === 'groups'
+        ? totalsByGroup(this.periodTx(), type, (id) => categories.get(id)?.groupId).map((entry) => {
+            const group = groups.get(entry.categoryId);
+            return {
+              id: entry.categoryId,
+              name: group?.name ?? 'Other',
+              color: group?.color ?? 'var(--color-cat-misc)',
+              icon: 'box' as IconName,
+              totalCents: entry.totalCents,
+            };
+          })
+        : totalsByCategory(this.periodTx(), type).map((entry) => {
+            const category = categories.get(entry.categoryId);
+            return {
+              id: entry.categoryId,
+              name: category?.name ?? 'Uncategorised',
+              color: category?.color ?? 'var(--color-cat-misc)',
+              icon: (category?.icon ?? 'box') as IconName,
+              totalCents: entry.totalCents,
+            };
+          });
+
+    if (all.length <= MAX_RENDERED_ROWS) return all;
+
+    const head = all.slice(0, MAX_RENDERED_ROWS - 1);
+    const rest = all.slice(MAX_RENDERED_ROWS - 1);
+    const otherCents = rest.reduce((sum, row) => sum + row.totalCents, 0);
+    return [
+      ...head,
+      {
+        id: '__other__',
+        name: 'Other',
+        color: 'var(--color-cat-misc)',
+        icon: 'box' as IconName,
+        totalCents: otherCents,
+      },
+    ];
   });
 
   protected readonly segments = computed<DonutSegment[]>(() =>

@@ -44,7 +44,7 @@ import type { IconName } from '../ui/icon-set';
         [style.height.px]="innerSize()"
         [style.background]="color()"
         [style.box-shadow]="'0 0 18px color-mix(in srgb, ' + color() + ' 45%, transparent)'"
-        [style.color]="'#0b1113'"
+        [style.color]="'#ffffff'"
       >
         <app-icon [name]="icon()" [size]="innerSize() * 0.48" [strokeWidth]="2.1" />
       </span>

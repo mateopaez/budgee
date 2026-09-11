@@ -10,7 +10,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
   host: { class: 'block' },
   template: `
     <header
-      class="relative px-4 pb-6"
+      class="relative px-4 pb-8"
       style="background: var(--accent-gradient); padding-top: calc(var(--safe-top) + 0.75rem)"
     >
       <div class="flex min-h-[3rem] items-center gap-2">
@@ -29,7 +29,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       </div>
     </header>
     @if (curved()) {
-      <div class="-mt-5 h-5 rounded-t-[1.75rem] bg-canvas"></div>
+      <div class="-mt-4 h-4 rounded-t-[1.75rem] bg-canvas"></div>
     }
   `,
 })
