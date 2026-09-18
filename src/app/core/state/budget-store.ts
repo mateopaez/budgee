@@ -14,12 +14,14 @@ import {
   type WorkspaceIdentity,
 } from '../data/workspace';
 import { DEMO_TODAY } from '../data/demo-seed';
+import { DEFAULT_CATEGORIES, withMissingSystemCategories } from '../data/taxonomy';
 import { createId } from '../util/id.util';
 import { toIsoDate, type IsoDate } from '../util/date.util';
 import { periodContaining, shiftPeriod } from '../util/budget-period.util';
 import { computeBudgetSummary, type BudgetSummary } from '../util/budget-calc.util';
 import { detectRecurringPayments } from '../util/recurring.util';
 import { computeWalletBalances } from '../util/wallet-balance.util';
+import { hasSplits } from '../util/transaction-split.util';
 
 export type StoreStatus = 'idle' | 'loading' | 'ready' | 'error' | 'seeding';
 
@@ -139,10 +141,11 @@ export class BudgetStore {
     try {
       const stored = await this.repository.load(identity.uid);
       if (stored) {
+        const withTaxonomy = this.applySystemTaxonomy(stored);
         this.workspaceSignal.set({
-          ...stored,
-          displayName: identity.displayName || stored.displayName,
-          email: identity.email || stored.email,
+          ...withTaxonomy,
+          displayName: identity.displayName || withTaxonomy.displayName,
+          email: identity.email || withTaxonomy.email,
         });
       } else {
         this.workspaceSignal.set(null);
@@ -247,14 +250,16 @@ export class BudgetStore {
 
   addTransaction(draft: TransactionDraft): Transaction {
     const now = new Date().toISOString();
+    const { splits: draftSplits, ...rest } = draft;
     const transaction: Transaction = {
-      ...draft,
+      ...rest,
       id: createId('tx'),
       currency: 'CAD',
       needsReview: false,
       linkedAccountId: null,
       createdAt: now,
       updatedAt: now,
+      ...(draftSplits && draftSplits.length >= 2 ? { splits: draftSplits } : {}),
     };
     this.patch((ws) => ({ ...ws, transactions: [transaction, ...ws.transactions] }));
     if (this.activeUid) {
@@ -272,7 +277,16 @@ export class BudgetStore {
       ...ws,
       transactions: ws.transactions.map((t) => {
         if (t.id !== id) return t;
-        updated = { ...t, ...draft, needsReview: false, updatedAt: now };
+        const { splits: draftSplits, ...rest } = draft;
+        updated = {
+          ...t,
+          ...rest,
+          needsReview: false,
+          updatedAt: now,
+          ...(draftSplits && draftSplits.length >= 2
+            ? { splits: draftSplits }
+            : { splits: undefined }),
+        };
         return updated;
       }),
     }));
@@ -318,13 +332,24 @@ export class BudgetStore {
   deleteCategory(id: string, replacementId: string): void {
     let touched: Transaction[] = [];
     this.patch((ws) => {
-      touched = ws.transactions.filter((t) => t.categoryId === id);
+      const nextTransactions = ws.transactions.map((t) => {
+        let next = t;
+        if (t.categoryId === id) next = { ...next, categoryId: replacementId };
+        if (hasSplits(next) && next.splits?.some((s) => s.categoryId === id)) {
+          next = {
+            ...next,
+            splits: next.splits!.map((s) =>
+              s.categoryId === id ? { ...s, categoryId: replacementId } : s,
+            ),
+          };
+        }
+        return next;
+      });
+      touched = nextTransactions.filter((t, index) => t !== ws.transactions[index]);
       return {
         ...ws,
         categories: ws.categories.filter((c) => c.id !== id),
-        transactions: ws.transactions.map((t) =>
-          t.categoryId === id ? { ...t, categoryId: replacementId } : t,
-        ),
+        transactions: nextTransactions,
         budgets: ws.budgets.map((b) => ({
           ...b,
           plans: b.plans.filter((p) => p.categoryId !== id),
@@ -336,10 +361,7 @@ export class BudgetStore {
     void this.persist(async () => {
       await this.repository.removeCategory(uid, id);
       for (const tx of touched) {
-        await this.repository.upsertTransaction(uid, {
-          ...tx,
-          categoryId: replacementId,
-        });
+        await this.repository.upsertTransaction(uid, tx);
       }
       const budgets = this.workspaceSignal()?.budgets ?? [];
       for (const budget of budgets) {
@@ -489,10 +511,11 @@ export class BudgetStore {
       (workspace) => {
         if (this.activeUid !== identity.uid) return;
         if (workspace) {
+          const withTaxonomy = this.applySystemTaxonomy(workspace);
           this.workspaceSignal.set({
-            ...workspace,
-            displayName: identity.displayName || workspace.displayName,
-            email: identity.email || workspace.email,
+            ...withTaxonomy,
+            displayName: identity.displayName || withTaxonomy.displayName,
+            email: identity.email || withTaxonomy.email,
           });
           if (this.statusSignal() === 'loading' || this.statusSignal() === 'seeding') {
             this.statusSignal.set('ready');
@@ -506,6 +529,23 @@ export class BudgetStore {
         this.statusSignal.set('error');
       },
     );
+  }
+
+  /** Ensures new system categories exist locally and in Firestore for older workspaces. */
+  private applySystemTaxonomy(workspace: Workspace): Workspace {
+    const merged = withMissingSystemCategories(workspace.categories);
+    if (merged.length === workspace.categories.length) return workspace;
+    const present = new Set(workspace.categories.map((c) => c.id));
+    const missing = DEFAULT_CATEGORIES.filter((c) => c.system && !present.has(c.id));
+    if (this.activeUid) {
+      const uid = this.activeUid;
+      void this.persist(async () => {
+        for (const category of missing) {
+          await this.repository.upsertCategory(uid, category);
+        }
+      });
+    }
+    return { ...workspace, categories: merged };
   }
 
   private teardownListener(): void {

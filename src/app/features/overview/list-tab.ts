@@ -6,6 +6,7 @@ import { PeriodSelector } from '../../shared/ui/period-selector';
 import { TransactionRow } from '../../shared/ui/transaction-row';
 import { Icon } from '../../shared/ui/icon';
 import { groupByDay } from '../../core/util/grouping.util';
+import { budgetExpenseCents } from '../../core/util/transaction-split.util';
 import { relativeDayLabel } from '../../core/util/date.util';
 import type { Transaction } from '../../core/models';
 
@@ -104,7 +105,7 @@ export class ListTab {
   protected readonly expenseCents = computed(() =>
     this.periodTx()
       .filter((t) => t.type === 'expense' && !t.excludedFromBudget)
-      .reduce((sum, t) => sum + t.amountCents, 0),
+      .reduce((sum, t) => sum + budgetExpenseCents(t), 0),
   );
 
   protected readonly balanceCents = computed(() => this.incomeCents() - this.expenseCents());

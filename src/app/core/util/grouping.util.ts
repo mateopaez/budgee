@@ -9,6 +9,11 @@ import {
   toIsoDate,
   type IsoDate,
 } from './date.util';
+import {
+  budgetExpenseAllocations,
+  budgetExpenseCents,
+  displayCategoryId,
+} from './transaction-split.util';
 
 export interface DayGroup {
   readonly date: IsoDate;
@@ -64,8 +69,11 @@ export function buildMonthCalendar(
   const income = new Map<IsoDate, Cents>();
   for (const tx of transactions) {
     if (tx.excludedFromBudget || tx.type === 'transfer') continue;
-    const target = tx.type === 'expense' ? spend : income;
-    target.set(tx.date, (target.get(tx.date) ?? 0) + tx.amountCents);
+    if (tx.type === 'expense') {
+      spend.set(tx.date, (spend.get(tx.date) ?? 0) + budgetExpenseCents(tx));
+    } else {
+      income.set(tx.date, (income.get(tx.date) ?? 0) + tx.amountCents);
+    }
   }
 
   const cells: CalendarCell[] = [];
@@ -103,7 +111,7 @@ export function cumulativeSpend(
   const perDay = new Map<IsoDate, Cents>();
   for (const tx of transactions) {
     if (tx.type !== 'expense' || tx.excludedFromBudget) continue;
-    perDay.set(tx.date, (perDay.get(tx.date) ?? 0) + tx.amountCents);
+    perDay.set(tx.date, (perDay.get(tx.date) ?? 0) + budgetExpenseCents(tx));
   }
   const length = Math.max(0, diffDays(startInclusive, endExclusive));
   const points: CumulativePoint[] = [];
@@ -128,6 +136,12 @@ export function totalsByCategory(
   const map = new Map<string, Cents>();
   for (const tx of transactions) {
     if (tx.type !== type || tx.excludedFromBudget) continue;
+    if (type === 'expense') {
+      for (const line of budgetExpenseAllocations(tx)) {
+        map.set(line.categoryId, (map.get(line.categoryId) ?? 0) + line.amountCents);
+      }
+      continue;
+    }
     map.set(tx.categoryId, (map.get(tx.categoryId) ?? 0) + tx.amountCents);
   }
   return [...map.entries()]
@@ -143,7 +157,14 @@ export function totalsByGroup(
   const map = new Map<string, Cents>();
   for (const tx of transactions) {
     if (tx.type !== type || tx.excludedFromBudget) continue;
-    const groupId = groupOf(tx.categoryId) ?? 'unknown';
+    if (type === 'expense') {
+      for (const line of budgetExpenseAllocations(tx)) {
+        const groupId = groupOf(line.categoryId) ?? 'unknown';
+        map.set(groupId, (map.get(groupId) ?? 0) + line.amountCents);
+      }
+      continue;
+    }
+    const groupId = groupOf(displayCategoryId(tx)) ?? 'unknown';
     map.set(groupId, (map.get(groupId) ?? 0) + tx.amountCents);
   }
   return [...map.entries()]

@@ -8,6 +8,7 @@ import { DonutChart, type DonutSegment } from '../../shared/charts/donut-chart';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { addDays, shortDateLabel, startOfWeek, weekdayShort } from '../../core/util/date.util';
 import { cumulativeSpend, totalsByCategory } from '../../core/util/grouping.util';
+import { budgetExpenseCents, displayCategoryId } from '../../core/util/transaction-split.util';
 import type { IconName } from '../../shared/ui/icon-set';
 
 /**
@@ -265,7 +266,7 @@ export class WeeklySummaryPage {
   );
 
   protected readonly totalCents = computed(() =>
-    this.weekExpenses().reduce((sum, t) => sum + t.amountCents, 0),
+    this.weekExpenses().reduce((sum, t) => sum + budgetExpenseCents(t), 0),
   );
 
   protected readonly weekPoints = computed<LinePoint[]>(() =>
@@ -303,7 +304,7 @@ export class WeeklySummaryPage {
   );
 
   protected readonly distinctCategories = computed(
-    () => new Set(this.weekTransactions().map((t) => t.categoryId)).size,
+    () => new Set(this.weekTransactions().map((t) => displayCategoryId(t))).size,
   );
 
   /** Bubbles sized by how many transactions fell into each category. */
@@ -311,7 +312,8 @@ export class WeeklySummaryPage {
     const categories = this.store.categoriesById();
     const counts = new Map<string, number>();
     for (const tx of this.weekTransactions()) {
-      counts.set(tx.categoryId, (counts.get(tx.categoryId) ?? 0) + 1);
+      const id = displayCategoryId(tx);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
     }
     const peak = Math.max(1, ...counts.values());
     return [...counts.entries()].slice(0, 10).map(([id, count]) => {
@@ -331,7 +333,7 @@ export class WeeklySummaryPage {
       .sort((a, b) => b.amountCents - a.amountCents)
       .slice(0, 3)
       .map((tx) => {
-        const category = categories.get(tx.categoryId);
+        const category = categories.get(displayCategoryId(tx));
         return {
           id: tx.id,
           merchant: tx.merchant || (category?.name ?? 'Transaction'),

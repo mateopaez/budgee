@@ -6,6 +6,7 @@ import { DonutChart, type DonutSegment } from '../../shared/charts/donut-chart';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { Icon } from '../../shared/ui/icon';
 import { totalsByCategory, totalsByGroup } from '../../core/util/grouping.util';
+import { budgetExpenseCents } from '../../core/util/transaction-split.util';
 import type { IconName } from '../../shared/ui/icon-set';
 
 type Lens = 'expense' | 'income';
@@ -174,7 +175,7 @@ export class SpendingTab {
   private readonly expenseCents = computed(() =>
     this.periodTx()
       .filter((t) => t.type === 'expense' && !t.excludedFromBudget)
-      .reduce((sum, t) => sum + t.amountCents, 0),
+      .reduce((sum, t) => sum + budgetExpenseCents(t), 0),
   );
 
   protected readonly bars = computed(() => {

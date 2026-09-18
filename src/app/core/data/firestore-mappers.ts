@@ -21,6 +21,7 @@ import type {
   ConnectionStatus,
   RecurrenceRule,
   Transaction,
+  TransactionSplit,
   TransactionType,
   UserPreferences,
   Wallet,
@@ -271,6 +272,7 @@ export function budgetToDoc(budget: Budget): DocumentData {
 
 export function mapTransaction(snap: FirestoreSnapLike): Transaction {
   const data = snap.data();
+  const splits = mapSplits(data['splits']);
   return {
     id: snap.id,
     type: asString(data['type'], 'expense') as TransactionType,
@@ -286,6 +288,7 @@ export function mapTransaction(snap: FirestoreSnapLike): Transaction {
     recurrence: asString(data['recurrence'], 'none') as RecurrenceRule,
     needsReview: asBoolean(data['needsReview'], false),
     linkedAccountId: asNullableString(data['linkedAccountId']),
+    ...(splits ? { splits } : {}),
     createdAt: timestampToIso(data['createdAt']),
     updatedAt: timestampToIso(data['updatedAt']),
   };
@@ -306,9 +309,30 @@ export function transactionToDoc(transaction: Transaction): DocumentData {
     recurrence: transaction.recurrence,
     needsReview: transaction.needsReview,
     linkedAccountId: transaction.linkedAccountId,
+    splits: transaction.splits && transaction.splits.length >= 2 ? transaction.splits.map((s) => ({ ...s })) : [],
     createdAt: isoToTimestamp(transaction.createdAt),
     updatedAt: isoToTimestamp(transaction.updatedAt),
   };
+}
+
+function mapSplits(value: unknown): readonly TransactionSplit[] | undefined {
+  if (!Array.isArray(value) || value.length < 2) return undefined;
+  const splits: TransactionSplit[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const id = asString(row['id']);
+    const categoryId = asString(row['categoryId']);
+    const amountCents = asNumber(row['amountCents']);
+    if (!id || !categoryId || amountCents <= 0) continue;
+    splits.push({
+      id,
+      categoryId,
+      amountCents,
+      settled: asBoolean(row['settled'], false),
+    });
+  }
+  return splits.length >= 2 ? splits : undefined;
 }
 
 export function mapConnection(snap: FirestoreSnapLike): ProviderConnection {

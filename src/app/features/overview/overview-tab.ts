@@ -9,6 +9,7 @@ import { ProgressRing } from '../../shared/charts/progress-ring';
 import { TransactionRow } from '../../shared/ui/transaction-row';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { cumulativeSpend } from '../../core/util/grouping.util';
+import { budgetExpenseCents } from '../../core/util/transaction-split.util';
 import { addDays, addMonths, diffDays, dueInLabel, startOfMonth } from '../../core/util/date.util';
 import type { Transaction } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
@@ -286,7 +287,7 @@ export class OverviewTab {
     return this.store
       .transactions()
       .filter((t) => t.type === 'expense' && !t.excludedFromBudget && t.date >= start && t.date < end)
-      .reduce((sum, t) => sum + t.amountCents, 0);
+      .reduce((sum, t) => sum + budgetExpenseCents(t), 0);
   });
 
   protected readonly periodDayCount = computed(() => {

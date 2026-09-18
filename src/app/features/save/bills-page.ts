@@ -37,7 +37,7 @@ import { dueInLabel } from '../../core/util/date.util';
       </p>
     </header>
 
-    <main class="-mt-6 flex-1 px-4" style="padding-bottom: var(--nav-clearance)">
+    <main class="mt-4 flex-1 px-4" style="padding-bottom: var(--nav-clearance)">
       @if (bills().length === 0) {
         <p class="rounded-[1.5rem] bg-raised p-6 text-center text-[0.95rem] text-ink-muted">
           No recurring payments detected yet.

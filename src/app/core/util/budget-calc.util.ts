@@ -5,6 +5,7 @@ import type { Transaction } from '../models/transaction.model';
 import type { Wallet } from '../models/wallet.model';
 import { isWithin, type IsoDate } from './date.util';
 import { remainingDaysInPeriod } from './budget-period.util';
+import { budgetExpenseAllocations, budgetExpenseCents } from './transaction-split.util';
 
 /**
  * Budget mathematics.
@@ -12,6 +13,7 @@ import { remainingDaysInPeriod } from './budget-period.util';
  * The rules, in one place:
  *
  *  - Expense transactions reduce the availability of their category.
+ *  - Split expenses allocate spend per line; settled lines are ignored.
  *  - Income transactions increase income totals only.
  *  - Transfers are ignored by default. They are counted only when the budget
  *    opts in to savings or debt transfers, and even then they never become
@@ -118,17 +120,22 @@ export function totalByType(
   transactions: readonly Transaction[],
   type: Transaction['type'],
 ): Cents {
-  return transactions.reduce((sum, tx) => (tx.type === type ? sum + tx.amountCents : sum), 0);
+  return transactions.reduce((sum, tx) => {
+    if (tx.type !== type) return sum;
+    if (type === 'expense') return sum + budgetExpenseCents(tx);
+    return sum + tx.amountCents;
+  }, 0);
 }
 
-/** Spend per category id, expenses only. */
+/** Spend per category id, expenses only (settled splits omitted). */
 export function expenseSpendByCategory(
   transactions: readonly Transaction[],
 ): Map<string, Cents> {
   const map = new Map<string, Cents>();
   for (const tx of transactions) {
-    if (tx.type !== 'expense') continue;
-    map.set(tx.categoryId, (map.get(tx.categoryId) ?? 0) + tx.amountCents);
+    for (const line of budgetExpenseAllocations(tx)) {
+      map.set(line.categoryId, (map.get(line.categoryId) ?? 0) + line.amountCents);
+    }
   }
   return map;
 }

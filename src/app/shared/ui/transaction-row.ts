@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { CategoryMark } from './category-mark';
+import { Icon } from './icon';
 import { MoneyFormat } from './money.service';
 import { BudgetStore } from '../../core/state/budget-store';
 import type { Transaction } from '../../core/models';
 import { longDateLabel, shortDateLabel } from '../../core/util/date.util';
+import { displayCategoryId, hasSplits } from '../../core/util/transaction-split.util';
 import type { IconName } from './icon-set';
 
 /**
@@ -13,7 +15,7 @@ import type { IconName } from './icon-set';
 @Component({
   selector: 'app-transaction-row',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CategoryMark],
+  imports: [CategoryMark, Icon],
   host: { class: 'block' },
   template: `
     <button
@@ -25,8 +27,19 @@ import type { IconName } from './icon-set';
     >
       <app-category-mark [icon]="icon()" [color]="color()" [size]="card() ? 46 : 40" />
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-[0.98rem] font-semibold text-ink">
-          {{ transaction().merchant || categoryName() }}
+        <span class="flex min-w-0 items-center gap-1.5">
+          <span class="truncate text-[0.98rem] font-semibold text-ink">
+            {{ transaction().merchant || categoryName() }}
+          </span>
+          @if (split()) {
+            <span
+              class="inline-flex shrink-0 items-center text-ink-muted"
+              aria-label="Split expense"
+              title="Split expense"
+            >
+              <app-icon name="scissors" [size]="14" />
+            </span>
+          }
         </span>
         @if (showChip()) {
           <span
@@ -69,9 +82,10 @@ export class TransactionRow {
   readonly activate = output<void>();
 
   protected readonly category = computed(() =>
-    this.store.categoriesById().get(this.transaction().categoryId),
+    this.store.categoriesById().get(displayCategoryId(this.transaction())),
   );
   protected readonly categoryName = computed(() => this.category()?.name ?? 'Uncategorised');
+  protected readonly split = computed(() => hasSplits(this.transaction()));
   protected readonly icon = computed<IconName>(() => this.category()?.icon ?? 'box');
   protected readonly color = computed(() => this.category()?.color ?? 'var(--color-cat-misc)');
 

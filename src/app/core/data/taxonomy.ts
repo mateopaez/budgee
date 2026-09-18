@@ -53,6 +53,7 @@ export const CATEGORY_IDS = {
   bankCost: 'cat_bank_cost',
   studentLoan: 'cat_student_loan',
   unknown: 'cat_unknown',
+  expectedReimbursement: 'cat_expected_reimbursement',
   salary: 'cat_salary',
   interest: 'cat_interest',
   refund: 'cat_refund',
@@ -89,10 +90,34 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
   { id: CATEGORY_IDS.bankCost, name: 'Bank cost', groupId: GROUP_IDS.misc, kind: 'expense', icon: 'bank', color: 'var(--color-cat-misc)' },
   { id: CATEGORY_IDS.studentLoan, name: 'Student loan', groupId: GROUP_IDS.misc, kind: 'expense', icon: 'graduation', color: 'var(--color-cat-misc)' },
   { id: CATEGORY_IDS.unknown, name: 'Unknown', groupId: GROUP_IDS.misc, kind: 'expense', icon: 'help', color: 'var(--color-cat-misc)', system: true },
+  {
+    id: CATEGORY_IDS.expectedReimbursement,
+    name: 'Expected reimbursement',
+    groupId: GROUP_IDS.misc,
+    kind: 'expense',
+    icon: 'refresh',
+    color: 'var(--color-cat-misc)',
+    system: true,
+  },
   // Income and transfers
   { id: CATEGORY_IDS.salary, name: 'Salary', groupId: GROUP_IDS.income, kind: 'income', icon: 'banknote', color: 'var(--color-cat-income)' },
   { id: CATEGORY_IDS.interest, name: 'Interest', groupId: GROUP_IDS.income, kind: 'income', icon: 'trend', color: 'var(--color-cat-income)' },
-  { id: CATEGORY_IDS.refund, name: 'Refund', groupId: GROUP_IDS.income, kind: 'income', icon: 'refresh', color: 'var(--color-cat-income)', system: true },
+  {
+    id: CATEGORY_IDS.refund,
+    name: 'Reimbursement',
+    groupId: GROUP_IDS.income,
+    kind: 'income',
+    icon: 'refresh',
+    color: 'var(--color-cat-income)',
+    system: true,
+  },
   { id: CATEGORY_IDS.savings, name: 'Savings', groupId: GROUP_IDS.income, kind: 'transfer', icon: 'piggy', color: 'var(--color-cat-savings)' },
   { id: CATEGORY_IDS.transfer, name: 'Transfer', groupId: GROUP_IDS.misc, kind: 'transfer', icon: 'swap', color: 'var(--color-cat-misc)', system: true },
 ];
+
+/** Adds any missing system categories so older workspaces pick up new taxonomy. */
+export function withMissingSystemCategories(categories: readonly Category[]): Category[] {
+  const present = new Set(categories.map((c) => c.id));
+  const missing = DEFAULT_CATEGORIES.filter((c) => c.system && !present.has(c.id));
+  return missing.length === 0 ? [...categories] : [...categories, ...missing];
+}

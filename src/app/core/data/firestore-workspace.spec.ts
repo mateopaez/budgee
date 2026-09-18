@@ -47,6 +47,27 @@ describe('firestore mappers', () => {
     expect(mapped.excludedFromBudget).toBe(true);
     expect(mapped.merchant).toBe('Maple Grocers');
     expect(mapped.createdAt).toContain('2026-09-05');
+    expect(mapped.splits).toBeUndefined();
+  });
+
+  it('round-trips expense splits including settled flags', () => {
+    const original = makeTransaction({
+      id: 'tx_split_1',
+      amountCents: 10_000,
+      categoryId: 'cat_restaurant',
+      splits: [
+        { id: 'spl_1', categoryId: 'cat_restaurant', amountCents: 3_000, settled: false },
+        {
+          id: 'spl_2',
+          categoryId: 'cat_expected_reimbursement',
+          amountCents: 7_000,
+          settled: true,
+        },
+      ],
+    });
+    const doc = transactionToDoc(original);
+    const mapped = mapTransaction({ id: original.id, data: () => doc });
+    expect(mapped.splits).toEqual(original.splits);
   });
 
   it('round-trips wallet opening balances without a derived currentBalance', () => {

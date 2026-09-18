@@ -13,10 +13,20 @@ import { BudgetStore } from '../../core/state/budget-store';
 import { ConfirmService } from '../../shared/ui/confirm.service';
 import { centsToInputString, parseMoneyToCents } from '../../core/util/currency.util';
 import { addDays, relativeDayLabel, shortDateLabel } from '../../core/util/date.util';
-import type { RecurrenceRule, TransactionDraft, TransactionType } from '../../core/models';
+import { createId } from '../../core/util/id.util';
+import { CATEGORY_IDS } from '../../core/data/taxonomy';
+import { splitsSumCents } from '../../core/util/transaction-split.util';
+import type { RecurrenceRule, TransactionDraft, TransactionSplit, TransactionType } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
 
-type PickerKind = 'category' | 'fromWallet' | 'toWallet' | 'recurrence' | null;
+type PickerKind = 'category' | 'splitCategory' | 'fromWallet' | 'toWallet' | 'recurrence' | null;
+
+interface SplitDraft {
+  readonly id: string;
+  categoryId: string;
+  amount: string;
+  settled: boolean;
+}
 
 const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
   none: 'Never repeat',
@@ -32,7 +42,8 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
  *
  * One reusable sheet drives all three modes. Switching mode keeps the amount,
  * description and date, and moves the wallet fields into the arrangement that
- * mode needs.
+ * mode needs. Expenses can optionally be split across categories, with a
+ * per-line Settled switch for reimbursed shares.
  */
 @Component({
   selector: 'app-transaction-editor-page',
@@ -79,6 +90,7 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
               formControlName="amount"
               class="w-[7.5ch] bg-transparent text-center text-[3rem] leading-none font-semibold text-ink outline-none"
               placeholder="0.00"
+              (blur)="onTotalAmountBlur()"
             />
           </div>
 
@@ -101,17 +113,19 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
         </div>
 
         <div class="mt-6 border-t border-line">
-          <button
-            type="button"
-            class="flex min-h-[3.75rem] w-full items-center gap-3 border-b border-line text-left"
-            (click)="picker.set('category')"
-          >
-            <app-category-mark [icon]="categoryIcon()" [color]="categoryColor()" [size]="38" />
-            <span class="flex-1 text-[1rem] text-ink-muted">
-              Category: <span class="font-semibold text-ink">{{ categoryName() }}</span>
-            </span>
-            <app-icon name="chevronRight" [size]="18" />
-          </button>
+          @if (!(type() === 'expense' && splitting())) {
+            <button
+              type="button"
+              class="flex min-h-[3.75rem] w-full items-center gap-3 border-b border-line text-left"
+              (click)="picker.set('category')"
+            >
+              <app-category-mark [icon]="categoryIcon()" [color]="categoryColor()" [size]="38" />
+              <span class="flex-1 text-[1rem] text-ink-muted">
+                Category: <span class="font-semibold text-ink">{{ categoryName() }}</span>
+              </span>
+              <app-icon name="chevronRight" [size]="18" />
+            </button>
+          }
 
           @if (type() !== 'income') {
             <button
@@ -136,6 +150,130 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
             </button>
           }
 
+          @if (type() === 'expense' && splitting()) {
+            <div class="border-b border-line py-3">
+              <div class="flex items-center justify-between gap-3 px-0.5">
+                <div>
+                  <p class="text-[1rem] font-semibold text-ink">Split</p>
+                  <p class="mt-0.5 text-[0.82rem] text-ink-muted">
+                    Lines must add up to {{ totalAmountLabel() }}. Settled lines skip the budget.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="min-h-[2.5rem] rounded-full px-3 text-[0.82rem] font-semibold text-ink-muted"
+                  (click)="clearSplits()"
+                >
+                  Remove
+                </button>
+              </div>
+
+              <ul class="mt-3 flex flex-col gap-2" aria-label="Expense splits">
+                @for (split of splits(); track split.id; let i = $index) {
+                  <li
+                    class="rounded-[1.15rem] bg-sunken/70 px-3 py-2.5"
+                    [class.opacity-55]="split.settled"
+                  >
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        class="flex min-h-[2.75rem] min-w-0 flex-1 items-center gap-2.5 text-left"
+                        (click)="openSplitCategory(i)"
+                      >
+                        <app-category-mark
+                          [icon]="splitIcon(split.categoryId)"
+                          [color]="splitColor(split.categoryId)"
+                          [size]="34"
+                        />
+                        <span class="min-w-0 flex-1 truncate text-[0.95rem] font-semibold text-ink">
+                          {{ splitName(split.categoryId) }}
+                        </span>
+                        <span class="text-ink-muted" aria-hidden="true">
+                          <app-icon name="chevronRight" [size]="16" />
+                        </span>
+                      </button>
+                      <div
+                        class="flex min-h-[2.75rem] items-center gap-0.5 rounded-[0.85rem] border border-line-strong bg-raised px-2.5"
+                      >
+                        <span class="text-[0.9rem] text-ink-muted">$</span>
+                        <label class="sr-only" [attr.for]="'split-amount-' + split.id">Split amount</label>
+                        <input
+                          [id]="'split-amount-' + split.id"
+                          type="text"
+                          inputmode="decimal"
+                          placeholder="0.00"
+                          class="w-[5.5ch] bg-transparent text-right text-[1.05rem] font-semibold text-ink outline-none placeholder:text-ink-faint"
+                          [value]="split.amount"
+                          [class.line-through]="split.settled"
+                          (input)="onSplitAmountInput(i, $event)"
+                          (blur)="onSplitAmountBlur(i)"
+                        />
+                      </div>
+                      @if (splits().length > 2) {
+                        <button
+                          type="button"
+                          class="flex size-9 items-center justify-center rounded-full text-ink-muted"
+                          [attr.aria-label]="'Remove split ' + (i + 1)"
+                          (click)="removeSplit(i)"
+                        >
+                          <app-icon name="x" [size]="16" />
+                        </button>
+                      }
+                    </div>
+                    <div class="mt-2 flex min-h-[2.4rem] items-center justify-between gap-3 border-t border-line/70 pt-2">
+                      <span class="text-[0.88rem] text-ink">Settled</span>
+                      <app-toggle-switch
+                        [label]="'Mark split ' + (i + 1) + ' as settled'"
+                        [checked]="split.settled"
+                        (toggle)="setSplitSettled(i, $event)"
+                      />
+                    </div>
+                  </li>
+                }
+              </ul>
+
+              @if (splitRemainderCents() !== 0) {
+                <p
+                  class="mt-2 text-[0.82rem]"
+                  [style.color]="'var(--color-negative)'"
+                  role="status"
+                >
+                  @if (splitRemainderCents() > 0) {
+                    {{ moneyLabel(splitRemainderCents()) }} still to assign
+                  } @else {
+                    {{ moneyLabel(-splitRemainderCents()) }} over the total
+                  }
+                </p>
+              }
+
+              <button
+                type="button"
+                class="mt-3 flex min-h-[2.75rem] w-full items-center justify-center gap-2 rounded-full border border-dashed border-line-strong text-[0.9rem] font-semibold text-ink"
+                (click)="addSplitLine()"
+              >
+                <app-icon name="plus" [size]="16" />
+                Add another split
+              </button>
+            </div>
+          } @else if (type() === 'expense') {
+            <button
+              type="button"
+              class="flex min-h-[3.75rem] w-full items-center gap-3 border-b border-line text-left"
+              (click)="enableSplits()"
+            >
+              <span class="flex size-9 items-center justify-center text-ink-muted" aria-hidden="true">
+                <app-icon name="scissors" [size]="22" />
+              </span>
+              <span class="flex-1">
+                <span class="block text-[1rem] text-ink">Split expense</span>
+                <span class="mt-0.5 block text-[0.82rem] text-ink-muted">
+                  Share categories or track money you’re owed
+                </span>
+              </span>
+              <app-icon name="chevronRight" [size]="18" />
+            </button>
+          }
+
           @if (type() !== 'expense') {
             <button
               type="button"
@@ -154,13 +292,13 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
             <span class="flex size-9 items-center justify-center text-ink-muted" aria-hidden="true">
               <app-icon name="pencil" [size]="22" />
             </span>
-            <label class="sr-only" for="merchant">Description</label>
+            <label class="sr-only" for="merchant">Title</label>
             <input
               id="merchant"
               type="text"
               formControlName="merchant"
               class="min-h-[3.5rem] flex-1 bg-transparent text-[1rem] text-ink outline-none placeholder:text-ink-faint"
-              placeholder="Add a description"
+              placeholder="Add a title"
             />
           </div>
 
@@ -212,6 +350,19 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
           </div>
         </div>
 
+        <div class="mt-5">
+          <label class="mb-2 block text-[0.72rem] font-semibold tracking-[0.14em] text-ink-muted uppercase" for="note">
+            Description
+          </label>
+          <textarea
+            id="note"
+            formControlName="note"
+            rows="3"
+            class="min-h-[5.5rem] w-full resize-y rounded-[1.15rem] border border-line bg-sunken/70 px-4 py-3 text-[1rem] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            placeholder="Optional notes about this transaction"
+          ></textarea>
+        </div>
+
         @if (errorMessage()) {
           <p role="alert" class="mt-4 text-[0.88rem] text-[color:var(--color-negative)]">
             {{ errorMessage() }}
@@ -248,6 +399,15 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
           [selected]="form.controls.categoryId.value"
           (choose)="pickCategory($event)"
           (cancel)="picker.set(null)"
+        />
+      }
+      @case ('splitCategory') {
+        <app-option-picker-sheet
+          title="Categories"
+          [options]="categoryOptions()"
+          [selected]="splitCategorySelected()"
+          (choose)="pickSplitCategory($event)"
+          (cancel)="closeSplitPicker()"
         />
       }
       @case ('fromWallet') {
@@ -295,8 +455,10 @@ export class TransactionEditorPage {
     this.router.getCurrentNavigation()?.previousNavigation != null;
 
   protected readonly picker = signal<PickerKind>(null);
+  protected readonly splitPickerIndex = signal<number | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly loadState = signal<'ready' | 'loading' | 'missing'>('ready');
+  protected readonly splits = signal<SplitDraft[]>([]);
 
   protected readonly typeOptions: { id: TransactionType; label: string }[] = [
     { id: 'expense', label: 'Expense' },
@@ -314,6 +476,7 @@ export class TransactionEditorPage {
   );
 
   protected readonly isEditing = computed(() => this.transactionId() !== null);
+  protected readonly splitting = computed(() => this.splits().length >= 2);
 
   protected readonly form = this.fb.nonNullable.group({
     amount: ['', [Validators.required, positiveAmount]],
@@ -322,6 +485,7 @@ export class TransactionEditorPage {
     fromWalletId: [null as string | null],
     toWalletId: [null as string | null],
     merchant: [''],
+    note: [''],
     date: ['', Validators.required],
     recurrence: ['none' as RecurrenceRule],
     excludedFromBudget: [false],
@@ -368,10 +532,21 @@ export class TransactionEditorPage {
       fromWalletId: existing.fromWalletId,
       toWalletId: existing.toWalletId,
       merchant: existing.merchant,
+      note: existing.note ?? '',
       date: existing.date,
       recurrence: existing.recurrence,
       excludedFromBudget: existing.excludedFromBudget,
     });
+    if (existing.type === 'expense' && existing.splits && existing.splits.length >= 2) {
+      this.splits.set(
+        existing.splits.map((split) => ({
+          id: split.id,
+          categoryId: split.categoryId,
+          amount: centsToInputString(split.amountCents),
+          settled: split.settled,
+        })),
+      );
+    }
     this.loadState.set('ready');
   }
 
@@ -438,10 +613,49 @@ export class TransactionEditorPage {
     return RECURRENCE_LABELS[this.form.controls.recurrence.value];
   });
 
+  protected readonly totalAmountLabel = computed(() => {
+    this.formState();
+    const cents = parseMoneyToCents(this.form.controls.amount.value);
+    return cents ? centsToInputString(cents) : '0.00';
+  });
+
+  protected readonly splitRemainderCents = computed(() => {
+    this.formState();
+    this.splits();
+    const total = parseMoneyToCents(this.form.controls.amount.value) ?? 0;
+    const assigned = this.splits().reduce((sum, split) => {
+      const cents = parseMoneyToCents(split.amount) ?? 0;
+      return sum + Math.max(0, cents);
+    }, 0);
+    return total - assigned;
+  });
+
+  protected readonly splitCategorySelected = computed(() => {
+    const index = this.splitPickerIndex();
+    if (index === null) return null;
+    return this.splits()[index]?.categoryId ?? null;
+  });
+
   protected walletName(control: 'fromWalletId' | 'toWalletId'): string {
     this.formState();
     const id = this.form.controls[control].value;
     return id ? (this.store.walletsById().get(id)?.name ?? 'Choose a wallet') : 'Choose a wallet';
+  }
+
+  protected splitName(categoryId: string): string {
+    return this.store.categoriesById().get(categoryId)?.name ?? 'Choose a category';
+  }
+
+  protected splitIcon(categoryId: string): IconName {
+    return this.store.categoriesById().get(categoryId)?.icon ?? 'box';
+  }
+
+  protected splitColor(categoryId: string): string {
+    return this.store.categoriesById().get(categoryId)?.color ?? 'var(--color-cat-misc)';
+  }
+
+  protected moneyLabel(cents: number): string {
+    return `$${centsToInputString(cents)}`;
   }
 
   /** Switching mode keeps shared values and repairs the mode specific ones. */
@@ -455,6 +669,7 @@ export class TransactionEditorPage {
 
     this.typeSignal.set(next);
     this.form.controls.type.setValue(next);
+    if (next !== 'expense') this.splits.set([]);
 
     const defaultCategory =
       next === 'income'
@@ -494,6 +709,25 @@ export class TransactionEditorPage {
     this.picker.set(null);
   }
 
+  protected openSplitCategory(index: number): void {
+    this.splitPickerIndex.set(index);
+    this.picker.set('splitCategory');
+  }
+
+  protected closeSplitPicker(): void {
+    this.splitPickerIndex.set(null);
+    this.picker.set(null);
+  }
+
+  protected pickSplitCategory(id: string): void {
+    const index = this.splitPickerIndex();
+    if (index === null) return;
+    this.splits.update((list) =>
+      list.map((split, i) => (i === index ? { ...split, categoryId: id } : split)),
+    );
+    this.closeSplitPicker();
+  }
+
   protected pickWallet(control: 'fromWalletId' | 'toWalletId', id: string): void {
     this.form.controls[control].setValue(id);
     if (this.type() === 'transfer') {
@@ -511,16 +745,122 @@ export class TransactionEditorPage {
     this.picker.set(null);
   }
 
+  protected enableSplits(): void {
+    const total = parseMoneyToCents(this.form.controls.amount.value);
+    if (!total || total <= 0) {
+      this.errorMessage.set('Enter an amount before splitting.');
+      return;
+    }
+    const primaryCategory =
+      this.form.controls.categoryId.value ||
+      this.store.preferences()?.defaultExpenseCategoryId ||
+      CATEGORY_IDS.misc;
+    const owedCategory = this.store.categoriesById().has(CATEGORY_IDS.expectedReimbursement)
+      ? CATEGORY_IDS.expectedReimbursement
+      : primaryCategory;
+
+    // Keep the original category at the full amount; the owed line starts empty
+    // so typing a reimbursement amount rebalances your share automatically.
+    this.splits.set([
+      {
+        id: createId('spl'),
+        categoryId: primaryCategory,
+        amount: centsToInputString(total),
+        settled: false,
+      },
+      {
+        id: createId('spl'),
+        categoryId: owedCategory,
+        amount: '',
+        settled: false,
+      },
+    ]);
+    this.errorMessage.set(null);
+  }
+
+  protected clearSplits(): void {
+    const first = this.splits()[0];
+    if (first?.categoryId) this.form.controls.categoryId.setValue(first.categoryId);
+    this.splits.set([]);
+  }
+
+  protected addSplitLine(): void {
+    const remainder = Math.max(0, this.splitRemainderCents());
+    this.splits.update((list) => [
+      ...list,
+      {
+        id: createId('spl'),
+        categoryId: CATEGORY_IDS.expectedReimbursement,
+        amount: remainder > 0 ? centsToInputString(remainder) : '',
+        settled: false,
+      },
+    ]);
+  }
+
+  protected removeSplit(index: number): void {
+    const next = this.splits().filter((_, i) => i !== index);
+    if (next.length < 2) {
+      this.clearSplits();
+      return;
+    }
+    this.splits.set(next);
+    this.rebalancePrimarySplit();
+  }
+
+  protected setSplitSettled(index: number, settled: boolean): void {
+    this.splits.update((list) =>
+      list.map((split, i) => (i === index ? { ...split, settled } : split)),
+    );
+  }
+
+  protected onSplitAmountInput(index: number, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.splits.update((list) =>
+      list.map((split, i) => (i === index ? { ...split, amount: value } : split)),
+    );
+    if (index !== 0) this.rebalancePrimarySplit();
+  }
+
+  protected onSplitAmountBlur(index: number): void {
+    const split = this.splits()[index];
+    if (!split) return;
+    const cents = parseMoneyToCents(split.amount);
+    this.splits.update((list) =>
+      list.map((row, i) =>
+        i === index
+          ? { ...row, amount: cents && cents > 0 ? centsToInputString(cents) : row.amount }
+          : row,
+      ),
+    );
+    if (index !== 0) this.rebalancePrimarySplit();
+  }
+
+  protected onTotalAmountBlur(): void {
+    if (!this.splitting()) return;
+    this.rebalancePrimarySplit();
+  }
+
+  /** Keep the first line absorbing leftover so the split always matches the total. */
+  private rebalancePrimarySplit(): void {
+    const total = parseMoneyToCents(this.form.controls.amount.value);
+    if (!total || total <= 0 || this.splits().length < 2) return;
+    const others = this.splits()
+      .slice(1)
+      .reduce((sum, split) => sum + Math.max(0, parseMoneyToCents(split.amount) ?? 0), 0);
+    const primary = Math.max(0, total - others);
+    this.splits.update((list) =>
+      list.map((split, i) =>
+        i === 0 ? { ...split, amount: centsToInputString(primary) } : split,
+      ),
+    );
+  }
+
   protected save(): void {
     const value = this.form.getRawValue();
     const amountCents = parseMoneyToCents(value.amount);
 
     if (!amountCents || amountCents <= 0) {
       this.errorMessage.set('Enter an amount greater than zero.');
-      return;
-    }
-    if (!value.categoryId) {
-      this.errorMessage.set('Choose a category.');
       return;
     }
     if (!value.date) {
@@ -540,16 +880,51 @@ export class TransactionEditorPage {
       return;
     }
 
+    let categoryId = value.categoryId;
+    let splits: readonly TransactionSplit[] | undefined;
+
+    if (value.type === 'expense' && this.splitting()) {
+      const draftSplits = this.splits()
+        .map((split) => ({
+          id: split.id,
+          categoryId: split.categoryId,
+          amountCents: parseMoneyToCents(split.amount) ?? 0,
+          settled: split.settled,
+        }))
+        .filter((split) => split.amountCents > 0 && split.categoryId);
+
+      if (draftSplits.length < 2) {
+        this.errorMessage.set('A split needs at least two category lines.');
+        return;
+      }
+      if (draftSplits.some((split) => !split.categoryId)) {
+        this.errorMessage.set('Choose a category for every split.');
+        return;
+      }
+      if (splitsSumCents(draftSplits) !== amountCents) {
+        this.errorMessage.set('Split amounts must add up to the total.');
+        return;
+      }
+      splits = draftSplits;
+      categoryId = draftSplits[0]!.categoryId;
+    } else if (!categoryId) {
+      this.errorMessage.set('Choose a category.');
+      return;
+    }
+
+    const note = value.note.trim();
     const draft: TransactionDraft = {
       type: value.type,
       amountCents,
       date: value.date,
-      categoryId: value.categoryId,
+      categoryId,
       merchant: value.merchant.trim(),
+      ...(note ? { note } : { note: undefined }),
       fromWalletId: value.type === 'income' ? null : value.fromWalletId,
       toWalletId: value.type === 'expense' ? null : value.toWalletId,
       excludedFromBudget: value.excludedFromBudget,
       recurrence: value.recurrence,
+      ...(splits ? { splits } : { splits: undefined }),
     };
 
     const id = this.transactionId();

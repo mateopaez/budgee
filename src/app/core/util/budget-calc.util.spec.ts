@@ -196,6 +196,23 @@ describe('left to spend and daily budget', () => {
     expect(summary.dailyBudgetCents).toBe(Math.round(123_000 / 23));
   });
 
+  it('only counts unsettled split lines toward category spend', () => {
+    const summary = summaryFor([
+      makeTransaction({
+        categoryId: 'cat_groceries',
+        amountCents: 10_000,
+        splits: [
+          { id: 's1', categoryId: 'cat_groceries', amountCents: 3_000, settled: false },
+          { id: 's2', categoryId: 'cat_misc', amountCents: 7_000, settled: true },
+        ],
+      }),
+    ]);
+    expect(summary.spentOnPlannedCents).toBe(3_000);
+    expect(summary.leftToSpendCents).toBe(147_000);
+    expect(summary.otherExpensesCents).toBe(0);
+    expect(summary.expensesCents).toBe(3_000);
+  });
+
   it('never divides by zero once the period has ended', () => {
     const budget = makeBudget();
     const summary = computeBudgetSummary({
