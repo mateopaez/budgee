@@ -44,3 +44,6 @@ __screenshots__/
 Thumbs.db
 *.log
 /budgee-screens
+.env
+.env.local
+.env.*.local

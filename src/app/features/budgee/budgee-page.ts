@@ -29,7 +29,7 @@ import type { Transaction } from '../../core/models';
         <app-status-pill
           [title]="connection()?.institutionName ?? 'No banks connected'"
           [caption]="syncCaption()"
-          [connected]="connection() !== undefined"
+          [connected]="connection()?.status === 'connected' || connection()?.status === 'syncing'"
         />
       </div>
 
@@ -167,15 +167,28 @@ export class BudgeePage {
   protected readonly transactions = this.store.transactions;
   protected readonly reviewCount = this.store.needsReviewCount;
 
-  protected readonly connection = computed(() =>
-    this.store.connections().find((c) => c.status === 'connected'),
-  );
+  protected readonly connection = computed(() => {
+    const list = this.store.connections();
+    const plaid = list.filter(
+      (connection) => connection.provider === 'plaid' && connection.status !== 'disconnected',
+    );
+    return (
+      plaid.find((connection) => connection.status === 'needs_attention') ??
+      plaid.find((connection) => connection.status === 'syncing') ??
+      plaid.find((connection) => connection.status === 'connected') ??
+      list.find((connection) => connection.status === 'connected')
+    );
+  });
 
   protected readonly syncCaption = computed(() => {
     const connection = this.connection();
-    if (!connection) return 'Never synced';
-    if (!connection.lastSyncAt) return 'Not synced yet';
-    return 'Demo data, synced locally';
+    if (!connection) return 'Not connected';
+    if (connection.provider === 'demo') return 'Demo data, synced locally';
+    if (connection.status === 'needs_attention') return 'Needs attention';
+    if (connection.status === 'syncing') return 'Syncing';
+    if (connection.status === 'disconnected') return 'Disconnected';
+    if (!connection.lastSyncAt) return 'Connected. Not synced yet';
+    return `Connected. ${syncedAt(connection.lastSyncAt)}`;
   });
 
   /** Most recent 40 transactions, grouped by day. */
@@ -188,4 +201,15 @@ export class BudgeePage {
   protected edit(tx: Transaction): void {
     void this.router.navigate(['/transactions', tx.id, 'edit']);
   }
+}
+
+function syncedAt(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Synced';
+  return `Synced ${new Intl.DateTimeFormat('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)}`;
 }

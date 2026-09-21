@@ -45,8 +45,13 @@ export class MoneyFormat {
   }
 
   /** Amount with the sign convention used by transaction rows. */
-  signed(cents: number, type: 'expense' | 'income' | 'transfer'): string {
-    if (type === 'income') return this.fmt(cents, { signed: true });
-    return this.fmt(cents);
+  signed(
+    cents: number,
+    type: 'expense' | 'income' | 'transfer',
+    currency?: string,
+  ): string {
+    const overrides = currency ? { currency } : {};
+    if (type === 'income') return this.fmt(cents, { signed: true, ...overrides });
+    return this.fmt(cents, overrides);
   }
 }

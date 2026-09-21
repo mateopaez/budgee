@@ -99,6 +99,12 @@ export class AuthService {
     return ok;
   }
 
+  async getIdToken(): Promise<string | null> {
+    const user = this.auth?.currentUser;
+    if (!user) return null;
+    return user.getIdToken();
+  }
+
   async signOut(): Promise<void> {
     if (!this.auth) return;
     await signOut(this.auth);

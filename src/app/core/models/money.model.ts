@@ -5,5 +5,8 @@
  */
 export type Cents = number;
 
-/** The MVP is Canadian dollars only, but the preference is modelled as a type. */
-export type CurrencyCode = 'CAD';
+/**
+ * Budgets are Canadian dollars. Imported Sandbox rows may be USD and are kept
+ * out of those totals. There is no conversion between the two.
+ */
+export type CurrencyCode = 'CAD' | 'USD';

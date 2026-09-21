@@ -20,6 +20,7 @@ import { budgetExpenseAllocations, budgetExpenseCents } from './transaction-spli
  *    income or an expense: a transfer into a savings wallet lands in the
  *    savings bucket.
  *  - Transactions flagged `excludedFromBudget` never affect any total.
+ *  - Transactions in a currency other than CAD never affect any total.
  *  - categoryRemaining = plannedAmount - includedExpenseSpend
  *  - leftToSpend      = sum(planned expense) - sum(included expenses in planned expense categories)
  *  - dailyBudget      = leftToSpend / max(1, remainingDaysInBudgetPeriod)
@@ -105,6 +106,7 @@ export function isBudgetIncluded(
   walletsById: ReadonlyMap<string, Wallet>,
 ): boolean {
   if (tx.excludedFromBudget) return false;
+  if (tx.currency !== 'CAD') return false;
   if (tx.type !== 'transfer') return true;
 
   const from = tx.fromWalletId ? walletsById.get(tx.fromWalletId) : undefined;

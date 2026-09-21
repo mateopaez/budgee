@@ -65,6 +65,9 @@ import type { IconName } from './icon-set';
           {{ amount() }}
         </span>
         <span class="mt-0.5 block text-[0.75rem] tracking-wide text-ink-muted">
+          @if (transaction().currency !== 'CAD') {
+            {{ transaction().currency }} ·
+          }
           {{ dateLabel() }}
         </span>
       </span>
@@ -96,7 +99,8 @@ export class TransactionRow {
 
   protected readonly amount = computed(() => {
     const tx = this.transaction();
-    return this.money.signed(tx.amountCents, tx.type);
+    const currency = tx.currency === 'CAD' ? undefined : tx.currency;
+    return this.money.signed(tx.amountCents, tx.type, currency);
   });
 
   protected readonly amountColor = computed(() => {

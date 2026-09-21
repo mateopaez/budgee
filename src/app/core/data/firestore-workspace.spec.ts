@@ -48,6 +48,13 @@ describe('firestore mappers', () => {
     expect(mapped.merchant).toBe('Maple Grocers');
     expect(mapped.createdAt).toContain('2026-09-05');
     expect(mapped.splits).toBeUndefined();
+    expect(mapped.externalId).toBeNull();
+  });
+
+  it('round-trips an imported external id', () => {
+    const original = makeTransaction({ id: 'tx_plaid_1', externalId: 'plaid_abc' });
+    const mapped = mapTransaction({ id: original.id, data: () => transactionToDoc(original) });
+    expect(mapped.externalId).toBe('plaid_abc');
   });
 
   it('round-trips expense splits including settled flags', () => {

@@ -106,9 +106,11 @@ workspace, after they choose it during onboarding or from Tools.
 
 ## Bank connections
 
-There is no bank aggregation in this release. The Bank Connections screen states
-this plainly and offers manual entry or the demo dataset. See
-`docs/future-plaid-integration.md` for what a secure integration would require.
+Sandbox bank linking is available through Plaid. The Angular app requests a
+short-lived link token and posts the one-time public token to the server.
+`PLAID_SECRET` and access tokens stay in server environment variables. See
+`docs/future-plaid-integration.md`. Production access and webhooks are not
+wired up yet.
 
 ## Progressive web app
 

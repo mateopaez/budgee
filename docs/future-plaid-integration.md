@@ -1,15 +1,21 @@
 # Future Plaid integration
 
-Budgee's MVP has no bank aggregation. This note records what a secure Plaid
-integration would require, so the architecture stays ready without carrying any
-of the risk today.
+Sandbox link, exchange, sync and disconnect are implemented. The server routes
+live on the Express app in `src/server.ts` and only call Plaid when `PLAID_ENV`
+is `sandbox`. Production access and webhooks are still outstanding.
+
+This note records the secure shape of the integration.
 
 ## What ships today
 
-- No Plaid packages, keys, secrets or environment variables.
-- No link flow that pretends to reach a real institution. The Bank Connections
-  screen states plainly that bank sync is coming soon.
-- A deterministic Canadian dollar demo dataset plus full manual entry.
+- Sandbox link, public-token exchange, transaction sync and disconnect.
+- Secrets stay in server environment variables (`PLAID_CLIENT_ID`,
+  `PLAID_SECRET`, `PLAID_ENV=sandbox`, `FIREBASE_SERVICE_ACCOUNT_JSON`).
+  See `.env.example`. Nothing under `src/app` imports them.
+- Access tokens, item ids and sync cursors are stored in
+  `private/{uid}/plaidItems/{itemId}`, which the client security rules deny.
+- A deterministic Canadian dollar demo dataset plus full manual entry. Production
+  Plaid and webhooks are not implemented.
 - Provider agnostic domain models: `Transaction`, `Wallet`, `LinkedAccount` and
   `ProviderConnection` carry no vendor specific fields, and
   `ProviderConnection.provider` is a union that already allows `'plaid'`.

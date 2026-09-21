@@ -6,8 +6,10 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
+  where,
   writeBatch,
   type DocumentData,
   type Unsubscribe,
@@ -41,6 +43,7 @@ import {
   walletToDoc,
   type UserProfileDoc,
 } from './firestore-mappers';
+import { walletIdsForImport } from '../plaid/map-plaid-transaction';
 import type {
   Budget,
   Category,
@@ -261,7 +264,7 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
 
     const createdAt = existing?.createdAt ?? new Date().toISOString();
     if (options.force || existing) {
-      await this.deleteUserCollections(identity.uid);
+      await this.deleteUserCollections(identity.uid, { preservePlaid: options.force === true });
     }
 
     const workspace =
@@ -270,7 +273,8 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
         : createEmptyWorkspace(identity, createdAt);
 
     await this.writeWorkspace(workspace, { replaceCollections: false, finalizeProfile: true });
-    return workspace;
+    if (!options.force) return workspace;
+    return this.withPreservedPlaid(workspace);
   }
 
   async upsertTransaction(uid: string, transaction: Transaction): Promise<void> {
@@ -360,6 +364,43 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
     await this.replaceCollection(uid, 'linkedAccounts', linkedAccounts, (item) =>
       linkedAccountToDoc(item),
     );
+    await this.touchUser(uid);
+  }
+
+  /**
+   * Points a linked bank account at a wallet and rewrites imported expense and
+   * income rows from that account so balances follow the new mapping.
+   */
+  async setLinkedAccountWallet(
+    uid: string,
+    accountId: string,
+    walletId: string | null,
+  ): Promise<void> {
+    const accountRef = doc(this.db, 'users', uid, 'linkedAccounts', accountId);
+    const account = await getDoc(accountRef);
+    if (!account.exists()) throw new Error('Account not found');
+
+    const transactions = await getDocs(
+      query(
+        collection(this.db, 'users', uid, 'transactions'),
+        where('linkedAccountId', '==', accountId),
+      ),
+    );
+    const updatedAt = new Date().toISOString();
+    const ops: Array<(batch: WriteBatch) => void> = [
+      (batch) => batch.set(accountRef, { walletId }, { merge: true }),
+    ];
+    for (const transaction of transactions.docs) {
+      const type = transaction.get('type');
+      if (type !== 'expense' && type !== 'income') continue;
+      const wallets = walletIdsForImport(type, walletId);
+      ops.push((batch) => batch.update(transaction.ref, { ...wallets, updatedAt }));
+    }
+    for (let index = 0; index < ops.length; index += 400) {
+      const batch = writeBatch(this.db);
+      for (const op of ops.slice(index, index + 400)) op(batch);
+      await batch.commit();
+    }
     await this.touchUser(uid);
   }
 
@@ -503,16 +544,57 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
     }
   }
 
-  private async deleteUserCollections(uid: string): Promise<void> {
+  /**
+   * Reset keeps Plaid connections and linked accounts so the bank link can be
+   * synced again. Disconnect is a separate action.
+   */
+  private async deleteUserCollections(
+    uid: string,
+    options: { preservePlaid?: boolean } = {},
+  ): Promise<void> {
+    const preservedConnectionIds = new Set<string>();
+    if (options.preservePlaid) {
+      const connections = await getDocs(collection(this.db, 'users', uid, 'connections'));
+      for (const connection of connections.docs) {
+        if (connection.get('provider') === 'plaid') preservedConnectionIds.add(connection.id);
+      }
+    }
+
     for (const name of USER_COLLECTIONS) {
       const snap = await getDocs(collection(this.db, 'users', uid, name));
-      const refs = snap.docs.map((d) => d.ref);
+      const refs = snap.docs
+        .filter((item) => {
+          if (!options.preservePlaid) return true;
+          if (name === 'connections') return !preservedConnectionIds.has(item.id);
+          if (name === 'linkedAccounts') {
+            const connectionId = item.get('connectionId');
+            return typeof connectionId !== 'string' || !preservedConnectionIds.has(connectionId);
+          }
+          return true;
+        })
+        .map((item) => item.ref);
       for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
         const batch = writeBatch(this.db);
         for (const ref of refs.slice(i, i + BATCH_LIMIT)) batch.delete(ref);
         await batch.commit();
       }
     }
+  }
+
+  private async withPreservedPlaid(workspace: Workspace): Promise<Workspace> {
+    const connections = await this.listMapped(workspace.uid, 'connections', mapConnection);
+    const linkedAccounts = await this.listMapped(workspace.uid, 'linkedAccounts', mapLinkedAccount);
+    const plaidIds = new Set(
+      connections.filter((connection) => connection.provider === 'plaid').map((connection) => connection.id),
+    );
+    const keptConnections = connections.filter((connection) => connection.provider === 'plaid');
+    const keptAccounts = linkedAccounts.filter((account) => plaidIds.has(account.connectionId));
+    if (keptConnections.length === 0 && keptAccounts.length === 0) return workspace;
+    return {
+      ...workspace,
+      connections: [...workspace.connections, ...keptConnections],
+      linkedAccounts: [...workspace.linkedAccounts, ...keptAccounts],
+    };
   }
 
   private async replaceCollection<T extends { id: string }>(

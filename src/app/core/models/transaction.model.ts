@@ -50,6 +50,11 @@ export interface Transaction {
   /** Imported rows can arrive without a confident category. */
   readonly needsReview: boolean;
   readonly linkedAccountId: string | null;
+  /**
+   * Provider transaction id, used to update an import in place.
+   * Absent on transactions entered by hand.
+   */
+  readonly externalId?: string | null;
   /** Expense-only category breakdown. Absent or length < 2 means unsplit. */
   readonly splits?: readonly TransactionSplit[];
   readonly createdAt: string;

@@ -69,7 +69,7 @@ import { Icon } from '../../shared/ui/icon';
         </button>
 
         <p class="rounded-2xl border border-line bg-surface px-4 py-3 text-[0.85rem] text-ink-muted">
-          Bank sync is coming soon. For now you add transactions manually or use demo data.
+          You can connect a Sandbox bank from Budgee after setup, or add transactions yourself.
         </p>
 
         @if (busy()) {

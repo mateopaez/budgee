@@ -5,6 +5,7 @@ import { OptionPickerSheet, type PickerOption } from '../../shared/ui/option-pic
 import { BudgetStore } from '../../core/state/budget-store';
 import { SessionService } from '../../core/state/session.service';
 import { ConfirmService } from '../../shared/ui/confirm.service';
+import { PlaidApi } from '../../core/data/plaid-api';
 import { exportTransactionsCsv } from './csv-export';
 import type { IconName } from '../../shared/ui/icon-set';
 
@@ -15,7 +16,7 @@ interface ToolCard {
   readonly icon: IconName;
   readonly color: string;
   readonly link?: string;
-  readonly action?: 'export' | 'reset';
+  readonly action?: 'export' | 'reset' | 'disconnect-plaid';
   readonly soon?: boolean;
 }
 
@@ -115,9 +116,21 @@ interface ToolCard {
 
       <p class="mt-5 text-center text-[0.82rem] text-ink-faint">Budgee MVP 0.1</p>
 
-      @if (store.status() === 'seeding') {
+      @if (store.status() === 'seeding' || disconnecting()) {
         <p class="mt-3 text-center text-[0.9rem] text-ink-muted" role="status" aria-live="polite">
-          Updating your Firestore data…
+          {{ disconnecting() ? 'Disconnecting Plaid…' : 'Updating your Firestore data…' }}
+        </p>
+      }
+      @if (notice(); as text) {
+        <p class="mt-3 text-center text-[0.9rem] text-ink-muted" role="status">{{ text }}</p>
+      }
+      @if (disconnectError(); as text) {
+        <p
+          class="mt-3 rounded-2xl border px-4 py-3 text-center text-[0.9rem]"
+          style="border-color: color-mix(in srgb, var(--color-negative) 40%, transparent); color: #ffa9ac"
+          role="alert"
+        >
+          {{ text }}
         </p>
       }
       @if (store.error(); as message) {
@@ -146,9 +159,13 @@ export class ToolsPage {
   protected readonly store = inject(BudgetStore);
   private readonly session = inject(SessionService);
   private readonly confirm = inject(ConfirmService);
+  private readonly plaid = inject(PlaidApi);
   private readonly router = inject(Router);
 
   protected readonly resetOpen = signal(false);
+  protected readonly disconnecting = signal(false);
+  protected readonly notice = signal<string | null>(null);
+  protected readonly disconnectError = signal<string | null>(null);
 
   protected readonly name = computed(() => this.store.workspace()?.displayName || 'You');
   protected readonly email = computed(() => this.store.workspace()?.email || '');
@@ -204,6 +221,14 @@ export class ToolsPage {
       action: 'reset',
     },
     {
+      id: 'disconnect-plaid',
+      title: 'Disconnect Plaid',
+      body: 'Remove the bank link and keep your data',
+      icon: 'link',
+      color: 'var(--color-cat-bills)',
+      action: 'disconnect-plaid',
+    },
+    {
       id: 'faq',
       title: 'FAQ',
       body: 'Frequently asked questions',
@@ -225,14 +250,14 @@ export class ToolsPage {
     {
       id: 'demo',
       label: 'Restore the demo dataset',
-      caption: 'Replaces your data with the seeded demo workspace',
+      caption: 'Replaces your data with the demo workspace. Plaid stays connected',
       icon: 'sparkle',
       color: 'var(--color-cat-savings)',
     },
     {
       id: 'empty',
       label: 'Clear all my data',
-      caption: 'Removes transactions, wallets and budgets, keeps your account',
+      caption: 'Removes transactions, wallets and budgets. Plaid stays connected',
       icon: 'trash',
       color: 'var(--color-negative)',
     },
@@ -248,6 +273,7 @@ export class ToolsPage {
       return;
     }
     if (card.action === 'reset') this.resetOpen.set(true);
+    if (card.action === 'disconnect-plaid') void this.disconnectPlaid();
   }
 
   protected async reset(mode: string): Promise<void> {
@@ -256,8 +282,8 @@ export class ToolsPage {
     const confirmed = await this.confirm.ask({
       title: demo ? 'Restore the demo dataset?' : 'Clear all your data?',
       message: demo
-        ? 'Your current transactions, wallets and budgets in Firestore are replaced by the seeded demo workspace. This only affects your own account.'
-        : 'Every transaction, wallet and budget in your Firestore account is removed. Your sign in details are untouched. This cannot be undone.',
+        ? 'Your transactions, wallets and budgets are replaced by the demo workspace. Your Plaid connection stays linked. This only affects your own account.'
+        : 'Transactions, wallets and budgets are removed. Your Plaid connection and sign in stay. This cannot be undone.',
       confirmLabel: demo ? 'Restore demo data' : 'Clear everything',
     });
     if (!confirmed) return;
@@ -266,6 +292,41 @@ export class ToolsPage {
       else await this.store.resetToEmpty();
     } catch {
       // BudgetStore surfaces the error for the tools page alert.
+    }
+  }
+
+  protected async disconnectPlaid(): Promise<void> {
+    if (this.disconnecting()) return;
+    this.notice.set(null);
+    this.disconnectError.set(null);
+    const connections = this.store
+      .connections()
+      .filter((connection) => connection.provider === 'plaid' && connection.status !== 'disconnected');
+    if (connections.length === 0) {
+      this.notice.set('No Plaid bank is connected.');
+      return;
+    }
+    const confirmed = await this.confirm.ask({
+      title: 'Disconnect Plaid?',
+      message:
+        'The bank link is removed. Transactions, wallets and budgets stay in Budgee. Reset data does not do this.',
+      confirmLabel: 'Disconnect Plaid',
+    });
+    if (!confirmed) return;
+    this.disconnecting.set(true);
+    try {
+      for (const connection of connections) {
+        await this.plaid.disconnect(connection.id);
+      }
+      this.notice.set(
+        connections.length === 1
+          ? `${connections[0]?.institutionName ?? 'Bank'} disconnected.`
+          : 'Plaid disconnected.',
+      );
+    } catch (error) {
+      this.disconnectError.set(error instanceof Error ? error.message : 'Could not disconnect Plaid');
+    } finally {
+      this.disconnecting.set(false);
     }
   }
 

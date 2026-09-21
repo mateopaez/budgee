@@ -22,6 +22,7 @@ import { computeBudgetSummary, type BudgetSummary } from '../util/budget-calc.ut
 import { detectRecurringPayments } from '../util/recurring.util';
 import { computeWalletBalances } from '../util/wallet-balance.util';
 import { hasSplits } from '../util/transaction-split.util';
+import { walletIdsForImport } from '../plaid/map-plaid-transaction';
 
 export type StoreStatus = 'idle' | 'loading' | 'ready' | 'error' | 'seeding';
 
@@ -490,6 +491,30 @@ export class BudgetStore {
         this.repository.updateProfile(this.activeUid as string, { onboardingCompleted: true }),
       );
     }
+  }
+
+  assignLinkedAccountWallet(accountId: string, walletId: string | null): void {
+    const current = this.workspaceSignal();
+    if (!current || !this.activeUid) return;
+    if (walletId && !current.wallets.some((wallet) => wallet.id === walletId && !wallet.archived)) {
+      return;
+    }
+    const account = current.linkedAccounts.find((item) => item.id === accountId);
+    if (!account || account.walletId === walletId) return;
+    const updatedAt = new Date().toISOString();
+    this.patch((ws) => ({
+      ...ws,
+      linkedAccounts: ws.linkedAccounts.map((item) =>
+        item.id === accountId ? { ...item, walletId } : item,
+      ),
+      transactions: ws.transactions.map((tx) => {
+        if (tx.linkedAccountId !== accountId) return tx;
+        if (tx.type !== 'expense' && tx.type !== 'income') return tx;
+        return { ...tx, ...walletIdsForImport(tx.type, walletId), updatedAt };
+      }),
+    }));
+    const uid = this.activeUid;
+    void this.persist(() => this.repository.setLinkedAccountWallet(uid, accountId, walletId));
   }
 
   setConnections(connections: Workspace['connections']): void {

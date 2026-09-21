@@ -140,6 +140,12 @@ describe('excluded transactions', () => {
     expect(excluded.expensesCents).toBe(0);
     expect(excluded.leftToSpendCents).toBe(150_000);
   });
+
+  it('ignores transactions that are not Canadian dollars', () => {
+    const tx = makeTransaction({ amountCents: 8_000, currency: 'USD', excludedFromBudget: false });
+    expect(isBudgetIncluded(tx, makeBudget(), new Map())).toBe(false);
+    expect(summaryFor([tx]).expensesCents).toBe(0);
+  });
 });
 
 describe('category remaining', () => {

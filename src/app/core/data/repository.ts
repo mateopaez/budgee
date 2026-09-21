@@ -29,8 +29,10 @@ export interface WalletRepository {
 }
 
 /**
- * Read side port for an external aggregation provider. No implementation ships
- * in this MVP; see docs/future-plaid-integration.md.
+ * Read side port for an external aggregation provider.
+ * Plaid link, exchange, sync and disconnect go through `PlaidApi`, which
+ * sends the Firebase ID token and never a uid. See
+ * docs/future-plaid-integration.md.
  */
 export interface FinancialDataProvider {
   readonly name: string;
