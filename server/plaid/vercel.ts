@@ -19,7 +19,7 @@ export async function handleWebPlaid(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const result = await dispatchPlaid(actionFromPath(new URL(request.url).pathname), {
+    const result = await dispatchPlaid(actionFromPath(requestPath(request.url)), {
       header(name: string) {
         return request.headers.get(name) ?? undefined;
       },
@@ -65,6 +65,14 @@ async function readJson(request: Request): Promise<unknown> {
     return (await request.json()) as unknown;
   } catch {
     return {};
+  }
+}
+
+function requestPath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url.split('?')[0] ?? '';
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/plaid/[action].ts": {
+    "api/plaid/[action].js": {
       "maxDuration": 60
     }
   }
