@@ -19,8 +19,7 @@ const NO_WALLET = '__none__';
 /**
  * Bank connections.
  *
- * Plaid Sandbox linking runs through the server. Demo connections stay labelled
- * as local data.
+ * Plaid linking runs through the server. Demo connections stay labelled as local data.
  */
 @Component({
   selector: 'app-bank-connections-page',
@@ -52,10 +51,10 @@ const NO_WALLET = '__none__';
         >
           <app-icon name="bank" [size]="30" />
         </span>
-        <h2 class="mt-4 text-[1.25rem] font-semibold text-ink">Connect a Sandbox bank</h2>
+        <h2 class="mt-4 text-[1.25rem] font-semibold text-ink">Connect a bank</h2>
         <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-muted">
-          Linking runs through Plaid on the server. Provider keys and access tokens never live in
-          this app.
+          Connecting a bank uses Plaid. Budgee never sees your bank password. A bank that needs
+          attention has to be connected again.
         </p>
         <button
           type="button"
@@ -102,6 +101,11 @@ const NO_WALLET = '__none__';
                   <span class="block text-[0.82rem] text-ink-muted">
                     {{ statusLabel(connection.status) }} · {{ syncLabel(connection.lastSyncAt) }}
                   </span>
+                  @if (connection.status === 'needs_attention') {
+                    <span class="mt-1 block text-[0.82rem] text-ink">
+                      This bank needs to be connected again.
+                    </span>
+                  }
                 </span>
               </div>
               @if (connection.status !== 'disconnected') {

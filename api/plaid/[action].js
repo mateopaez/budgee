@@ -5,7 +5,7 @@
  * The TypeScript route emitted `export`, which crashes the process
  * before the handler runs (FUNCTION_INVOCATION_FAILED).
  */
-module.exports = async function plaidAction(req, res) {
+async function plaidAction(req, res) {
   try {
     const { handleNodePlaid, handleWebPlaid } = require('../../server/plaid/vercel');
     if (isWebRequest(req)) return await handleWebPlaid(req);
@@ -20,7 +20,7 @@ module.exports = async function plaidAction(req, res) {
     }
     return responseJson(message);
   }
-};
+}
 
 function isWebRequest(req) {
   return typeof Request !== 'undefined' && req instanceof Request;
@@ -37,3 +37,11 @@ function responseJson(message) {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
 }
+
+plaidAction.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+module.exports = plaidAction;

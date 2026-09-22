@@ -106,11 +106,14 @@ workspace, after they choose it during onboarding or from Tools.
 
 ## Bank connections
 
-Sandbox bank linking is available through Plaid. The Angular app requests a
-short-lived link token and posts the one-time public token to the server.
-`PLAID_SECRET` and access tokens stay in server environment variables. See
-`docs/future-plaid-integration.md`. Production access and webhooks are not
-wired up yet.
+Bank linking uses Plaid Production. The Angular app requests a short-lived
+link token and posts the one-time public token to the server. `PLAID_SECRET`
+and access tokens stay in server environment variables. Plaid webhooks hit
+`POST /api/plaid/webhook`, which verifies the webhook JWT before syncing.
+See `docs/future-plaid-integration.md`.
+
+Sandbox tokens were not migrated. A bank connected in Sandbox has to be
+connected again; imported transactions stay.
 
 ## Progressive web app
 

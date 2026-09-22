@@ -6,7 +6,7 @@
 export type Cents = number;
 
 /**
- * Budgets are Canadian dollars. Imported Sandbox rows may be USD and are kept
- * out of those totals. There is no conversion between the two.
+ * Budgets are Canadian dollars. Imported USD rows are kept out of those totals.
+ * There is no conversion between the two.
  */
 export type CurrencyCode = 'CAD' | 'USD';

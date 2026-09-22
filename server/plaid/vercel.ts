@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dispatchPlaid } from './dispatch';
-import type { PlaidRequest } from './handlers';
 
 export const maxDuration = 60;
 
@@ -19,11 +18,16 @@ export async function handleWebPlaid(request: Request): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
+    const raw = new Uint8Array(await request.arrayBuffer());
+    if (raw.byteLength > BODY_LIMIT) {
+      return Response.json({ error: 'Body too large' }, { status: 413 });
+    }
     const result = await dispatchPlaid(actionFromPath(requestPath(request.url)), {
       header(name: string) {
         return request.headers.get(name) ?? undefined;
       },
-      body: await readJson(request),
+      body: parseJsonBytes(raw),
+      rawBody: raw,
     });
     return Response.json(result.body, { status: result.status });
   } catch (error) {
@@ -37,7 +41,18 @@ export async function handleNodePlaid(req: NodeRequest, res: ServerResponse): Pr
     send(res, 405, { error: 'Method not allowed' });
     return;
   }
-  const result = await dispatchPlaid(actionName(req), toPlaidRequest(req));
+  const payload = await readNodePayload(req);
+  if (payload.tooLarge) {
+    send(res, 413, { error: 'Body too large' });
+    return;
+  }
+  const result = await dispatchPlaid(actionName(req), {
+    header(name: string): string | string[] | undefined {
+      return req.headers[name.toLowerCase()];
+    },
+    body: payload.json,
+    rawBody: payload.raw,
+  });
   send(res, result.status, result.body);
 }
 
@@ -58,11 +73,59 @@ function isWebRequest(input: Request | NodeRequest): input is Request {
   return typeof Request !== 'undefined' && input instanceof Request;
 }
 
-async function readJson(request: Request): Promise<unknown> {
-  const type = request.headers.get('content-type') ?? '';
-  if (!type.includes('application/json')) return {};
+const BODY_LIMIT = 32 * 1024;
+
+async function readNodePayload(
+  req: NodeRequest,
+): Promise<{ raw: Uint8Array | null; json: unknown; tooLarge?: boolean }> {
+  const body = req.body;
+  if (Buffer.isBuffer(body)) {
+    if (body.byteLength > BODY_LIMIT) return { raw: null, json: {}, tooLarge: true };
+    return { raw: body, json: parseJsonBytes(body) };
+  }
+  if (typeof body === 'string') {
+    const raw = Buffer.from(body, 'utf8');
+    if (raw.byteLength > BODY_LIMIT) return { raw: null, json: {}, tooLarge: true };
+    return { raw, json: parseJsonBytes(raw) };
+  }
+  if (body == null || body === '') {
+    try {
+      const raw = await readRequestStream(req);
+      return { raw, json: parseJsonBytes(raw) };
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Body too large') {
+        return { raw: null, json: {}, tooLarge: true };
+      }
+      return { raw: null, json: {} };
+    }
+  }
+  return { raw: null, json: body };
+}
+
+function readRequestStream(req: IncomingMessage): Promise<Uint8Array> {
+  if (req.readableEnded) return Promise.resolve(new Uint8Array());
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on('data', (chunk: Buffer | string) => {
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      size += buf.length;
+      if (size > BODY_LIMIT) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function parseJsonBytes(raw: Uint8Array): unknown {
+  if (raw.byteLength === 0) return {};
   try {
-    return (await request.json()) as unknown;
+    return JSON.parse(Buffer.from(raw).toString('utf8')) as unknown;
   } catch {
     return {};
   }
@@ -85,34 +148,6 @@ function actionName(req: NodeRequest): string {
   const query = req.query?.['action'];
   if (typeof query === 'string' && query) return query;
   return actionFromPath((req.url ?? '').split('?')[0] ?? '');
-}
-
-function toPlaidRequest(req: NodeRequest): PlaidRequest {
-  return {
-    header(name: string): string | string[] | undefined {
-      return req.headers[name.toLowerCase()];
-    },
-    body: parseBody(req.body),
-  };
-}
-
-function parseBody(body: unknown): unknown {
-  if (body == null || body === '') return {};
-  if (typeof body === 'string') {
-    try {
-      return JSON.parse(body) as unknown;
-    } catch {
-      return {};
-    }
-  }
-  if (Buffer.isBuffer(body)) {
-    try {
-      return JSON.parse(body.toString('utf8')) as unknown;
-    } catch {
-      return {};
-    }
-  }
-  return body;
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {

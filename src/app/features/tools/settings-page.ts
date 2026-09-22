@@ -126,8 +126,8 @@ const ACCENTS = [
         <section class="rounded-[1.5rem] bg-raised px-5 pb-5">
           <p class="border-b border-line py-4 text-[0.9rem] leading-relaxed text-ink-muted">
             Budgee stores your data under your own account. Nothing is shared with other users.
-            Bank linking uses Plaid Sandbox through the server, and provider secrets stay off this
-            device.
+            Bank linking uses Plaid through the server. Budgee never sees your bank password, and
+            provider secrets stay off this device.
           </p>
           <button
             type="button"

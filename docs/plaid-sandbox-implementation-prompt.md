@@ -1,5 +1,9 @@
 # Implement Plaid (Sandbox only)
 
+This task is finished. Budgee calls Plaid Production only. Do not follow the
+Sandbox steps below, including First Platypus Bank. See
+`docs/future-plaid-integration.md`. Sandbox tokens were not migrated.
+
 You are implementing bank linking for Budgee, an Angular 21 personal budgeting app. This task is the Sandbox milestone only. Production / live bank access is a later switch of environment variables plus a webhook, and you must not build that now.
 
 The project owner already has a Plaid **Sandbox** `client_id` and `secret`. They will paste those values into a gitignored env file and into Vercel. Do not ask them to paste either value into the chat. Do not print the values in logs, responses, or commits.

@@ -71,7 +71,7 @@ export function loadPlaidLink(): Promise<void> {
 }
 
 /**
- * Browser calls for the Sandbox Plaid endpoints.
+ * Browser calls for the Plaid endpoints.
  * The Firebase ID token is sent; the uid is never part of the body.
  */
 @Injectable({ providedIn: 'root' })

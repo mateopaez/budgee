@@ -31,7 +31,7 @@ export interface WalletRepository {
 /**
  * Read side port for an external aggregation provider.
  * Plaid link, exchange, sync and disconnect go through `PlaidApi`, which
- * sends the Firebase ID token and never a uid. See
+ * sends the Firebase ID token and never a uid. Webhooks are server-only. See
  * docs/future-plaid-integration.md.
  */
 export interface FinancialDataProvider {

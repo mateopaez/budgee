@@ -69,7 +69,8 @@ import { Icon } from '../../shared/ui/icon';
         </button>
 
         <p class="rounded-2xl border border-line bg-surface px-4 py-3 text-[0.85rem] text-ink-muted">
-          You can connect a Sandbox bank from Budgee after setup, or add transactions yourself.
+          You can connect a bank with Plaid after setup, or add transactions yourself. Budgee never
+          sees your bank password.
         </p>
 
         @if (busy()) {

@@ -1,4 +1,4 @@
-import type { DocumentReference, Firestore, WriteBatch } from 'firebase-admin/firestore';
+import type { DocumentReference, Firestore, QueryDocumentSnapshot, WriteBatch } from 'firebase-admin/firestore';
 import type { AccountBase, RemovedTransaction, Transaction as PlaidTransaction } from 'plaid';
 import { createId } from '../../src/app/core/util/id.util';
 import {
@@ -7,24 +7,31 @@ import {
   syncCursor,
   type PlaidTransactionInput,
 } from '../../src/app/core/plaid/map-plaid-transaction';
+import { isPlaidItemGone, isRejectedPlaidToken } from '../../src/app/core/plaid/plaid-webhook';
 import type { LinkedAccount, ProviderConnection, Transaction } from '../../src/app/core/models';
 import { linkCountries, linkProducts, plaidClient, plaidFailure } from './client';
-import { HttpError } from './config';
+import { HttpError, plaidWebhookUrl } from './config';
 import { adminAuth, adminDb } from './firebase';
 
 /** The few request fields the Plaid handlers read. Express and Vercel both satisfy this. */
 export interface PlaidRequest {
   header(name: string): string | string[] | undefined;
   readonly body: unknown;
+  /** Exact request bytes. Webhook verification hashes these, not a re-parsed object. */
+  readonly rawBody?: Uint8Array | null;
 }
 
-interface SecretItem {
+export interface StoredPlaidItem {
+  readonly ref: DocumentReference;
+  readonly uid: string;
   readonly accessToken: string;
   readonly itemId: string;
   readonly cursor: string;
   readonly connectionId: string;
   readonly accountMap: Record<string, string>;
 }
+
+const SYNC_BUDGET_MS = 50_000;
 
 export async function createLinkToken(req: PlaidRequest): Promise<{ body: { linkToken: string } }> {
   const uid = await uidFrom(req);
@@ -34,6 +41,7 @@ export async function createLinkToken(req: PlaidRequest): Promise<{ body: { link
     products: linkProducts(),
     country_codes: linkCountries(),
     language: 'en',
+    webhook: plaidWebhookUrl(),
   });
   return { body: { linkToken: created.data.link_token } };
 }
@@ -137,8 +145,21 @@ export async function syncConnection(req: PlaidRequest): Promise<{
   const db = adminDb();
   const item = await findItem(db, uid, connectionId);
   if (!item) throw new HttpError(404, 'Connection not found');
+  const counts = await syncStoredItem(db, item, {
+    waitForReady: true,
+    deadlineAt: Date.now() + SYNC_BUDGET_MS,
+  });
+  return { body: counts };
+}
 
-  await setStatus(db, uid, connectionId, 'syncing');
+/** Syncs one stored Item. The cursor is written only after the transaction writes succeed. */
+export async function syncStoredItem(
+  db: Firestore,
+  item: StoredPlaidItem,
+  options: { readonly waitForReady: boolean; readonly deadlineAt: number },
+): Promise<{ added: number; modified: number; removed: number }> {
+  const { uid, connectionId } = item;
+  await markConnectionStatus(db, uid, connectionId, 'syncing');
   let finished = false;
   try {
     const accountsByPlaidId = await accountLinks(db, uid, item.accountMap);
@@ -147,7 +168,7 @@ export async function syncConnection(req: PlaidRequest): Promise<{
     const localImports = existing.filter(
       (tx) => tx.linkedAccountId != null && linkedIds.has(tx.linkedAccountId),
     ).length;
-    const pages = await fetchTransactions(item.accessToken, syncCursor(item.cursor, localImports));
+    const pages = await fetchTransactions(item.accessToken, syncCursor(item.cursor, localImports), options);
     const plan = applyPlaidSync({
       added: pages.added.map(toInput),
       modified: pages.modified.map(toInput),
@@ -191,17 +212,13 @@ export async function syncConnection(req: PlaidRequest): Promise<{
       { merge: true },
     );
     finished = true;
-    return { body: { added: plan.added, modified: plan.modified, removed: plan.removed } };
+    return { added: plan.added, modified: plan.modified, removed: plan.removed };
   } catch (error) {
     const failure = plaidFailure(error);
-    if (failure.code === 'ITEM_LOGIN_REQUIRED') {
-      await setStatus(db, uid, connectionId, 'needs_attention');
+    if (isRejectedPlaidToken(failure.code)) {
+      await markConnectionStatus(db, uid, connectionId, 'needs_attention');
       finished = true;
-      throw new HttpError(
-        409,
-        'This bank connection needs to be signed in again.',
-        'ITEM_LOGIN_REQUIRED',
-      );
+      throw new HttpError(409, 'This bank needs to be connected again.', failure.code ?? undefined);
     }
     if (failure.code === 'PRODUCT_NOT_READY') {
       throw new HttpError(
@@ -213,7 +230,7 @@ export async function syncConnection(req: PlaidRequest): Promise<{
     if (failure.code) throw new HttpError(502, failure.message, failure.code);
     throw error;
   } finally {
-    if (!finished) await setStatus(db, uid, connectionId, 'connected').catch(() => undefined);
+    if (!finished) await markConnectionStatus(db, uid, connectionId, 'connected').catch(() => undefined);
   }
 }
 
@@ -227,20 +244,29 @@ export async function disconnectConnection(req: PlaidRequest): Promise<{ body: {
   if (!item && !connection.exists) throw new HttpError(404, 'Connection not found');
 
   if (item) {
-    try {
-      await plaidClient().itemRemove({ access_token: item.accessToken });
-    } catch (error) {
-      const failure = plaidFailure(error);
-      if (failure.code !== 'ITEM_NOT_FOUND') {
-        throw new HttpError(502, failure.message, failure.code ?? undefined);
-      }
-    }
-    await item.ref.delete();
-  }
-  if (connection.exists) {
+    await disconnectStoredItem(db, item);
+  } else if (connection.exists) {
     await connectionRef.set({ status: 'disconnected' }, { merge: true });
   }
   return { body: { ok: true } };
+}
+
+/** Revokes the Item when Plaid still has it. An already-invalid Item is still removed locally. */
+export async function disconnectStoredItem(db: Firestore, item: StoredPlaidItem): Promise<void> {
+  try {
+    await plaidClient().itemRemove({ access_token: item.accessToken });
+  } catch (error) {
+    const failure = plaidFailure(error);
+    if (!isPlaidItemGone(failure.code)) {
+      throw new HttpError(502, failure.message, failure.code ?? undefined);
+    }
+  }
+  await item.ref.delete();
+  const connectionRef = db.doc(`users/${item.uid}/connections/${item.connectionId}`);
+  const connection = await connectionRef.get();
+  if (connection.exists) {
+    await connectionRef.set({ status: 'disconnected' }, { merge: true });
+  }
 }
 
 async function uidFrom(req: PlaidRequest): Promise<string> {
@@ -293,7 +319,11 @@ function toLinkedAccount(
   };
 }
 
-async function fetchTransactions(accessToken: string, startCursor: string): Promise<{
+async function fetchTransactions(
+  accessToken: string,
+  startCursor: string,
+  options: { readonly waitForReady: boolean; readonly deadlineAt: number },
+): Promise<{
   added: PlaidTransaction[];
   modified: PlaidTransaction[];
   removed: RemovedTransaction[];
@@ -302,9 +332,9 @@ async function fetchTransactions(accessToken: string, startCursor: string): Prom
   let attempt = 0;
   while (true) {
     try {
-      return await fetchPages(accessToken, startCursor);
+      return await fetchPages(accessToken, startCursor, options);
     } catch (error) {
-      if (plaidFailure(error).code === 'PRODUCT_NOT_READY' && attempt < 3) {
+      if (plaidFailure(error).code === 'PRODUCT_NOT_READY' && attempt < 3 && Date.now() + 1500 < options.deadlineAt) {
         attempt += 1;
         await delay(1500);
         continue;
@@ -314,7 +344,11 @@ async function fetchTransactions(accessToken: string, startCursor: string): Prom
   }
 }
 
-async function fetchPages(accessToken: string, startCursor: string): Promise<{
+async function fetchPages(
+  accessToken: string,
+  startCursor: string,
+  options: { readonly waitForReady: boolean; readonly deadlineAt: number },
+): Promise<{
   added: PlaidTransaction[];
   modified: PlaidTransaction[];
   removed: RemovedTransaction[];
@@ -328,6 +362,9 @@ async function fetchPages(accessToken: string, startCursor: string): Promise<{
   let waits = 0;
 
   while (pages < 20) {
+    if (Date.now() > options.deadlineAt) {
+      throw new HttpError(503, 'Sync did not finish in time');
+    }
     const response = await plaidClient().transactionsSync({
       access_token: accessToken,
       ...(cursor ? { cursor } : {}),
@@ -342,12 +379,13 @@ async function fetchPages(accessToken: string, startCursor: string): Promise<{
       pages += 1;
       continue;
     }
+    if (!options.waitForReady) break;
 
     const status = page.transactions_update_status;
     const settled =
       status === 'HISTORICAL_UPDATE_COMPLETE' ||
       (status === 'INITIAL_UPDATE_COMPLETE' && added.length + modified.length + removed.length > 0);
-    if (settled || waits >= 10) break;
+    if (settled || waits >= 10 || Date.now() + 1500 > options.deadlineAt) break;
     waits += 1;
     await delay(1500);
   }
@@ -368,11 +406,7 @@ function toInput(tx: PlaidTransaction): PlaidTransactionInput {
   };
 }
 
-async function findItem(
-  db: Firestore,
-  uid: string,
-  connectionId: string,
-): Promise<(SecretItem & { ref: DocumentReference }) | null> {
+async function findItem(db: Firestore, uid: string, connectionId: string): Promise<StoredPlaidItem | null> {
   const snap = await db
     .collection(`private/${uid}/plaidItems`)
     .where('connectionId', '==', connectionId)
@@ -380,12 +414,25 @@ async function findItem(
     .get();
   const doc = snap.docs[0];
   if (!doc) return null;
+  const item = storedItemFromSnapshot(doc);
+  if (!item || item.uid !== uid || item.connectionId !== connectionId) return null;
+  return item;
+}
+
+/** Reads a secret Item. The path must be `private/{uid}/plaidItems/{itemId}`. */
+export function storedItemFromSnapshot(doc: QueryDocumentSnapshot): StoredPlaidItem | null {
+  const uid = /^private\/([^/]+)\/plaidItems\/[^/]+$/.exec(doc.ref.path)?.[1];
+  if (!uid || uid.includes('..')) return null;
   const accessToken = doc.get('accessToken');
   const itemId = doc.get('itemId');
-  if (typeof accessToken !== 'string' || typeof itemId !== 'string') return null;
+  const connectionId = doc.get('connectionId');
+  if (typeof accessToken !== 'string' || typeof itemId !== 'string' || typeof connectionId !== 'string') {
+    return null;
+  }
   const cursor = doc.get('cursor');
   return {
     ref: doc.ref,
+    uid,
     accessToken,
     itemId,
     cursor: typeof cursor === 'string' ? cursor : '',
@@ -476,7 +523,7 @@ function newTransactionDoc(tx: Transaction) {
   };
 }
 
-async function setStatus(
+export async function markConnectionStatus(
   db: Firestore,
   uid: string,
   connectionId: string,

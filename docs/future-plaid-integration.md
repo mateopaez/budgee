@@ -1,84 +1,80 @@
-# Future Plaid integration
+# Plaid integration
 
-Sandbox link, exchange, sync and disconnect are implemented. Locally the
-routes live on the Express app in `src/server.ts`. Vercel serves the Angular
-client as static files and does not run that Express app, so production calls
-go through the serverless function in `api/plaid/[action].ts`. Both paths only
-call Plaid when `PLAID_ENV` is `sandbox`. Live Production access and webhooks
-are still outstanding.
+Production link, public-token exchange, transaction sync, disconnect, and
+verified webhooks are implemented. Locally the routes live on the Express app
+in `src/server.ts`. Vercel serves the Angular client as static files and does
+not run that Express app, so hosted calls go through the CommonJS function
+`api/plaid/[action].js`. Both paths call Plaid Production only. `PLAID_ENV`
+must be the exact string `production`.
 
-This note records the secure shape of the integration.
+Access tokens created in Sandbox were not migrated. Those connections need the
+bank connected again. Imported transactions are kept.
 
-## What ships today
+## What ships
 
-- Sandbox link, public-token exchange, transaction sync and disconnect.
+- Production link, exchange, sync, disconnect, and `POST /api/plaid/webhook`.
 - Secrets stay in server environment variables (`PLAID_CLIENT_ID`,
-  `PLAID_SECRET`, `PLAID_ENV=sandbox`, `FIREBASE_SERVICE_ACCOUNT_JSON`).
-  See `.env.example`. Nothing under `src/app` imports them.
-- Access tokens, item ids and sync cursors are stored in
+  `PLAID_SECRET`, `PLAID_ENV=production`, `FIREBASE_SERVICE_ACCOUNT_JSON`).
+  Optional `PLAID_WEBHOOK_URL` overrides the webhook URL sent on link-token
+  create. The default is `https://budgee0.vercel.app/api/plaid/webhook`.
+  Register that same URL in the Plaid dashboard for Production.
+  See `.env.example`. Nothing under `src/app` imports these variables.
+- Access tokens, item ids, and sync cursors are stored in
   `private/{uid}/plaidItems/{itemId}`, which the client security rules deny.
-- A deterministic Canadian dollar demo dataset plus full manual entry. Production
-  Plaid and webhooks are not implemented.
-- Provider agnostic domain models: `Transaction`, `Wallet`, `LinkedAccount` and
-  `ProviderConnection` carry no vendor specific fields, and
-  `ProviderConnection.provider` is a union that already allows `'plaid'`.
-- A read side port, `FinancialDataProvider` in
-  `src/app/core/data/repository.ts`, with no implementation.
+- Webhooks are verified (ES256 JWT, then SHA-256 of the raw body) before any
+  write. There is no Firebase user on that request.
+  `TRANSACTIONS` / `SYNC_UPDATES_AVAILABLE` runs the same sync as the button.
+  `ITEM` / `ERROR` (including `ITEM_LOGIN_REQUIRED`), `PENDING_EXPIRATION`, and
+  `PENDING_DISCONNECT` set the connection to `needs_attention`.
+  `USER_PERMISSION_REVOKED` disconnects the Item locally and keeps transactions.
+  Unknown items and unknown webhook types respond 200 and do nothing.
+- A deterministic Canadian dollar demo dataset, plus full manual entry.
+- Provider-agnostic domain models. `ProviderConnection.provider` includes `'plaid'`.
 
 ## The one hard rule
 
 **Plaid client secrets and access tokens must never be exposed in the Angular
 browser app.** The browser is a public client: anything shipped to it, including
 environment variables inlined at build time, is readable by anyone using the
-app. Only the `link_token` (short lived, single use, scoped to one Link session)
-may reach the browser.
+app. The browser may hold a short-lived `link_token` and, after Link, a one-time
+`public_token`. It must not see `PLAID_SECRET`, `access_token`, `item_id`, or
+the sync cursor.
 
-## Required server side layer
+## Endpoints
 
-A serverless function layer, preferably Vercel Functions alongside the existing
-Angular SSR deployment, would own four endpoints:
-
-| Endpoint | Purpose | Secrets used |
+| Endpoint | Purpose | Auth |
 | --- | --- | --- |
-| `POST /api/plaid/link-token` | Create a `link_token` for the signed in user | `PLAID_CLIENT_ID`, `PLAID_SECRET` |
-| `POST /api/plaid/exchange` | Exchange the Link `public_token` for an `access_token`, store it server side keyed by uid | `PLAID_CLIENT_ID`, `PLAID_SECRET` |
-| `POST /api/plaid/sync` | Call `/transactions/sync` with the stored cursor and write normalised transactions into `users/{uid}` | `PLAID_CLIENT_ID`, `PLAID_SECRET` |
-| `POST /api/plaid/disconnect` | Call `/item/remove` and delete the stored item and cursor | `PLAID_CLIENT_ID`, `PLAID_SECRET` |
+| `POST /api/plaid/link-token` | Create a `link_token` for the signed-in user. Subscribes the Item to the webhook URL. | Firebase ID token |
+| `POST /api/plaid/exchange` | Exchange the Link `public_token`, store the access token, write the public connection and accounts | Firebase ID token |
+| `POST /api/plaid/sync` | Call `/transactions/sync` with the stored cursor and write normalised transactions | Firebase ID token |
+| `POST /api/plaid/disconnect` | Call `/item/remove`, delete the secret Item, mark the connection `disconnected` | Firebase ID token |
+| `POST /api/plaid/webhook` | Verify Plaid's webhook JWT, then sync or update status for that Item | Plaid JWT only |
 
-Every endpoint must:
+Every user-facing endpoint verifies the Firebase ID token and derives the uid
+from it. The webhook does not. None of them return the access token.
 
-1. Verify the caller's Firebase ID token and derive the uid from it, never from
-   the request body.
-2. Read and write only under that uid's own documents.
-3. Store `access_token`, `item_id` and the sync `cursor` in a server only
-   collection that the client security rules deny outright, for example
-   `private/{uid}/plaidItems/{itemId}`, encrypted at rest.
-4. Never return the `access_token` in a response.
+Products are `transactions` only. Country codes are `CA` and `US`. Language is
+`en`. Client name is `Budgee`.
 
-Plaid webhooks (`SYNC_UPDATES_AVAILABLE`, `ITEM_ERROR`, `PENDING_EXPIRATION`)
-should hit a fifth endpoint that verifies the Plaid webhook JWT before acting.
+## Money
 
-## Client side changes when it lands
+Amounts are integer cents: `Math.round(Math.abs(amount) * 100)`. A positive
+Plaid amount is an expense and a negative amount is income. Pending
+transactions are skipped. Currencies other than `CAD` and `USD` are skipped.
+USD rows stay out of the Canadian dollar budget. `externalId` is the
+idempotency key. A later sync does not overwrite a category, note, split, or
+budget-exclusion flag the user already set.
 
-1. Implement `PlaidFinancialDataProvider implements FinancialDataProvider` that
-   calls the endpoints above with the user's Firebase ID token.
-2. Replace the placeholder body of the Bank Connections screen and the connect
-   sheet with a real Plaid Link launch, driven by a `link_token` fetched from
-   `/api/plaid/link-token`.
-3. Map Plaid accounts onto `LinkedAccount` and, where the user chooses, onto a
-   `Wallet`. Keep imported transactions flagged `needsReview` until a category
-   is confident, which the existing review queue already handles.
-4. Set `ProviderConnection.status` from the item state so the Budgee tab's status
-   pill reflects reality, including `needs_attention` for re-authentication.
+Account kinds are checking, savings, credit, and loan. Anything else is
+skipped. `walletId` stays empty until the user maps one on Bank Connections.
 
-Nothing in the UI layer, the store or the budget mathematics needs to change:
-imported transactions are ordinary `Transaction` records.
+## Hosting constraints
 
-## Canadian specifics worth planning for
-
-- Plaid coverage in Canada runs largely through institution specific flows; test
-  with the Canadian sandbox institutions before shipping.
-- Amounts arrive as decimal numbers. Convert to integer cents at the boundary,
-  since the rest of Budgee stores money as cents.
-- Currency codes must be checked; anything that is not CAD needs an explicit
-  decision rather than a silent conversion.
+`api/plaid/[action].js` stays CommonJS. `server/plaid` compiles as CommonJS.
+`firebase-admin` and `plaid` load through `require()` in
+`server/plaid/native-modules.cjs`. Webhook signature checks call `import('jose')`
+from `server/plaid/load-jose.cjs`, because `jose` 6 is ESM-only and TypeScript's
+CommonJS emit would rewrite an `import()` in a `.ts` file into `require()`.
+Do not put `includeFiles` in `vercel.json`.
+`scripts/patch-jwks-rsa.mjs` must keep running after install so Firebase token
+checks can load `jose`.

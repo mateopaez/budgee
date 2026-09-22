@@ -7,12 +7,14 @@ import {
   syncConnection,
   type PlaidRequest,
 } from './handlers';
+import { receivePlaidWebhook } from './webhook';
 
 const ACTIONS = {
   'link-token': createLinkToken,
   exchange: exchangePublicToken,
   sync: syncConnection,
   disconnect: disconnectConnection,
+  webhook: receivePlaidWebhook,
 } as const;
 
 export type PlaidAction = keyof typeof ACTIONS;

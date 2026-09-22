@@ -30,7 +30,10 @@ export interface PlaidConfig {
   readonly serviceAccountJson: string;
 }
 
-/** Reads Sandbox credentials. Refuses any other Plaid environment. */
+/** Production webhook Link subscribes to. Override with `PLAID_WEBHOOK_URL` for another host. */
+export const PLAID_WEBHOOK_URL = 'https://budgee0.vercel.app/api/plaid/webhook';
+
+/** Reads Production credentials. Refuses Sandbox and every other environment. */
 export function plaidConfig(): PlaidConfig {
   loadLocalEnv();
   const clientId = process.env['PLAID_CLIENT_ID']?.trim() ?? '';
@@ -44,8 +47,25 @@ export function plaidConfig(): PlaidConfig {
   if (missing.length > 0) {
     throw new HttpError(500, `Missing server configuration: ${missing.join(', ')}`);
   }
-  if (env !== 'sandbox') {
-    throw new HttpError(500, 'PLAID_ENV must be sandbox');
+  if (env !== 'production') {
+    throw new HttpError(500, 'PLAID_ENV must be production');
   }
   return { clientId, secret, serviceAccountJson };
+}
+
+/** URL sent on `linkTokenCreate`. The value is not a secret. */
+export function plaidWebhookUrl(): string {
+  loadLocalEnv();
+  const configured = process.env['PLAID_WEBHOOK_URL']?.trim() ?? '';
+  if (!configured) return PLAID_WEBHOOK_URL;
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new HttpError(500, 'PLAID_WEBHOOK_URL must be an https URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new HttpError(500, 'PLAID_WEBHOOK_URL must be an https URL');
+  }
+  return parsed.toString();
 }

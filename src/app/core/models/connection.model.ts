@@ -1,9 +1,8 @@
 import type { Cents } from './money.model';
 
 /**
- * Provider agnostic bank connection metadata. Today only the "demo" and
- * "manual" providers exist. A future Plaid integration adds provider: 'plaid'
- * plus a server side token exchange; nothing in the UI layer needs to change.
+ * Provider agnostic bank connection metadata. Plaid tokens stay on the server.
+ * `needs_attention` means the bank has to be connected again.
  */
 export type ConnectionProvider = 'demo' | 'manual' | 'plaid';
 

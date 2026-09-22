@@ -1,22 +1,28 @@
+import { createHash } from 'node:crypto';
 import type { CountryCode, PlaidApi, Products } from 'plaid';
 import { plaidConfig } from './config';
 import { loadNative } from './load-native';
 
 type PlaidModule = typeof import('plaid');
 
-let client: PlaidApi | null = null;
+let cached: { client: PlaidApi; fingerprint: string } | null = null;
 
 function plaidModule(): PlaidModule {
   return loadNative<PlaidModule>('plaid');
 }
 
+/**
+ * One Production client per process. The cache key changes with the credentials,
+ * so a Sandbox client cannot linger after `PLAID_ENV` or the secret changes.
+ */
 export function plaidClient(): PlaidApi {
-  if (client) return client;
-  const { Configuration, PlaidApi: Api, PlaidEnvironments } = plaidModule();
   const { clientId, secret } = plaidConfig();
-  client = new Api(
+  const fingerprint = createHash('sha256').update(clientId).update('\0').update(secret).digest('hex');
+  if (cached?.fingerprint === fingerprint) return cached.client;
+  const { Configuration, PlaidApi: Api, PlaidEnvironments } = plaidModule();
+  const client = new Api(
     new Configuration({
-      basePath: PlaidEnvironments['sandbox'],
+      basePath: PlaidEnvironments['production'],
       baseOptions: {
         headers: {
           'PLAID-CLIENT-ID': clientId,
@@ -25,6 +31,7 @@ export function plaidClient(): PlaidApi {
       },
     }),
   );
+  cached = { client, fingerprint };
   return client;
 }
 

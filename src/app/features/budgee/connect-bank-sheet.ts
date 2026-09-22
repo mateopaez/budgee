@@ -29,12 +29,8 @@ import { PlaidApi, PlaidClientError, loadPlaidLink } from '../../core/data/plaid
 
       <h2 class="mt-6 text-[1.5rem] leading-tight font-bold text-ink">Connect a bank</h2>
       <p class="mt-2 text-[0.95rem] leading-relaxed text-ink-muted">
-        Plaid Sandbox opens in a secure window. Budgee never sees your bank password, and the
-        access token stays on the server.
-      </p>
-      <p class="mt-4 text-[0.9rem] leading-relaxed text-ink-muted">
-        Continue without a phone number, then choose First Platypus Bank. Sign in as
-        user_transactions_dynamic with any password. If it asks for a code, enter 1234.
+        Connecting a bank uses Plaid, which opens in a secure window. Budgee never sees your bank
+        password, and the access token stays on the server.
       </p>
 
       @if (message(); as text) {
