@@ -11,6 +11,9 @@
   },
   "private": true,
   "packageManager": "npm@10.9.4",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@angular/common": "^21.2.0",
     "@angular/compiler": "^21.2.0",
@@ -21,6 +24,7 @@
     "@angular/router": "^21.2.0",
     "@angular/service-worker": "^21.2.0",
     "@angular/ssr": "^21.2.6",
+    "@google-cloud/firestore": "^9.2.0",
     "express": "^5.1.0",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.4.0",

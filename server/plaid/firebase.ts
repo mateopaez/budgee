@@ -1,7 +1,11 @@
-import { cert, getApps, initializeApp, type ServiceAccount } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
+import type { ServiceAccount } from 'firebase-admin/app';
 import { HttpError, plaidConfig } from './config';
+import { loadNative } from './load-native';
+
+type AdminAppModule = typeof import('firebase-admin/app');
+type AdminAuthModule = typeof import('firebase-admin/auth');
+type AdminFirestoreModule = typeof import('firebase-admin/firestore');
 
 function serviceAccountFromJson(raw: string): ServiceAccount {
   const parsed = parseServiceAccountJson(raw);
@@ -56,16 +60,26 @@ function readString(row: Record<string, unknown>, key: string): string | null {
 }
 
 function app() {
+  const { cert, getApps, initializeApp } = loadNative<AdminAppModule>('firebase-admin/app');
   if (getApps().length === 0) {
     initializeApp({ credential: cert(serviceAccountFromJson(plaidConfig().serviceAccountJson)) });
   }
-  return getApps()[0];
+  const current = getApps()[0];
+  if (!current) throw new HttpError(500, 'Firebase admin did not start');
+  return current;
 }
 
 export function adminAuth() {
+  const { getAuth } = loadNative<AdminAuthModule>('firebase-admin/auth');
   return getAuth(app());
 }
 
 export function adminDb(): Firestore {
-  return getFirestore(app());
+  const { getFirestore, initializeFirestore } = loadNative<AdminFirestoreModule>('firebase-admin/firestore');
+  const firebaseApp = app();
+  try {
+    return initializeFirestore(firebaseApp, { preferRest: true });
+  } catch {
+    return getFirestore(firebaseApp);
+  }
 }

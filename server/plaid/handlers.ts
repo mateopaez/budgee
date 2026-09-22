@@ -8,7 +8,7 @@ import {
   type PlaidTransactionInput,
 } from '../../src/app/core/plaid/map-plaid-transaction';
 import type { LinkedAccount, ProviderConnection, Transaction } from '../../src/app/core/models';
-import { LINK_COUNTRIES, LINK_PRODUCTS, plaidClient, plaidFailure } from './client';
+import { linkCountries, linkProducts, plaidClient, plaidFailure } from './client';
 import { HttpError } from './config';
 import { adminAuth, adminDb } from './firebase';
 
@@ -31,8 +31,8 @@ export async function createLinkToken(req: PlaidRequest): Promise<{ body: { link
   const created = await plaidClient().linkTokenCreate({
     user: { client_user_id: uid },
     client_name: 'Budgee',
-    products: LINK_PRODUCTS,
-    country_codes: LINK_COUNTRIES,
+    products: linkProducts(),
+    country_codes: linkCountries(),
     language: 'en',
   });
   return { body: { linkToken: created.data.link_token } };

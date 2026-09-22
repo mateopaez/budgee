@@ -1,13 +1,14 @@
-import { handleWebPlaid } from '../../server/plaid/vercel';
-
 export const maxDuration = 60;
 
-export function POST(request: Request): Promise<Response> {
-  return handleWebPlaid(request);
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const { handleWebPlaid } = await import('../../server/plaid/vercel');
+    return await handleWebPlaid(request);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.replace(/-----BEGIN[\s\S]*?-----END [^-]+-----/g, '').slice(0, 300)
+        : 'Function failed';
+    return Response.json({ error: message || 'Function failed' }, { status: 500 });
+  }
 }
-
-export default {
-  fetch(request: Request): Promise<Response> {
-    return handleWebPlaid(request);
-  },
-};

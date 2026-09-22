@@ -1,18 +1,20 @@
-import {
-  Configuration,
-  CountryCode,
-  PlaidApi,
-  PlaidEnvironments,
-  Products,
-} from 'plaid';
+import type { CountryCode, PlaidApi, Products } from 'plaid';
 import { plaidConfig } from './config';
+import { loadNative } from './load-native';
+
+type PlaidModule = typeof import('plaid');
 
 let client: PlaidApi | null = null;
 
+function plaidModule(): PlaidModule {
+  return loadNative<PlaidModule>('plaid');
+}
+
 export function plaidClient(): PlaidApi {
   if (client) return client;
+  const { Configuration, PlaidApi: Api, PlaidEnvironments } = plaidModule();
   const { clientId, secret } = plaidConfig();
-  client = new PlaidApi(
+  client = new Api(
     new Configuration({
       basePath: PlaidEnvironments['sandbox'],
       baseOptions: {
@@ -26,8 +28,14 @@ export function plaidClient(): PlaidApi {
   return client;
 }
 
-export const LINK_PRODUCTS = [Products.Transactions];
-export const LINK_COUNTRIES = [CountryCode.Ca, CountryCode.Us];
+export function linkProducts(): Products[] {
+  return [plaidModule().Products.Transactions];
+}
+
+export function linkCountries(): CountryCode[] {
+  const { CountryCode } = plaidModule();
+  return [CountryCode.Ca, CountryCode.Us];
+}
 
 /** Pulls a Plaid error code without logging the request, which carries the secret. */
 export function plaidFailure(error: unknown): { code: string | null; message: string } {
