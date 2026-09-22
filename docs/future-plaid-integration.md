@@ -1,8 +1,11 @@
 # Future Plaid integration
 
-Sandbox link, exchange, sync and disconnect are implemented. The server routes
-live on the Express app in `src/server.ts` and only call Plaid when `PLAID_ENV`
-is `sandbox`. Production access and webhooks are still outstanding.
+Sandbox link, exchange, sync and disconnect are implemented. Locally the
+routes live on the Express app in `src/server.ts`. Vercel serves the Angular
+client as static files and does not run that Express app, so production calls
+go through the serverless function in `api/plaid/[action].ts`. Both paths only
+call Plaid when `PLAID_ENV` is `sandbox`. Live Production access and webhooks
+are still outstanding.
 
 This note records the secure shape of the integration.
 

@@ -1,4 +1,3 @@
-import type { Request } from 'express';
 import type { DocumentReference, Firestore, WriteBatch } from 'firebase-admin/firestore';
 import type { AccountBase, RemovedTransaction, Transaction as PlaidTransaction } from 'plaid';
 import { createId } from '../../src/app/core/util/id.util';
@@ -13,6 +12,12 @@ import { LINK_COUNTRIES, LINK_PRODUCTS, plaidClient, plaidFailure } from './clie
 import { HttpError } from './config';
 import { adminAuth, adminDb } from './firebase';
 
+/** The few request fields the Plaid handlers read. Express and Vercel both satisfy this. */
+export interface PlaidRequest {
+  header(name: string): string | string[] | undefined;
+  readonly body: unknown;
+}
+
 interface SecretItem {
   readonly accessToken: string;
   readonly itemId: string;
@@ -21,7 +26,7 @@ interface SecretItem {
   readonly accountMap: Record<string, string>;
 }
 
-export async function createLinkToken(req: Request): Promise<{ body: { linkToken: string } }> {
+export async function createLinkToken(req: PlaidRequest): Promise<{ body: { linkToken: string } }> {
   const uid = await uidFrom(req);
   const created = await plaidClient().linkTokenCreate({
     user: { client_user_id: uid },
@@ -33,7 +38,7 @@ export async function createLinkToken(req: Request): Promise<{ body: { linkToken
   return { body: { linkToken: created.data.link_token } };
 }
 
-export async function exchangePublicToken(req: Request): Promise<{
+export async function exchangePublicToken(req: PlaidRequest): Promise<{
   body: {
     connection: ProviderConnection;
     accounts: LinkedAccount[];
@@ -124,7 +129,7 @@ export async function exchangePublicToken(req: Request): Promise<{
   }
 }
 
-export async function syncConnection(req: Request): Promise<{
+export async function syncConnection(req: PlaidRequest): Promise<{
   body: { added: number; modified: number; removed: number };
 }> {
   const uid = await uidFrom(req);
@@ -212,7 +217,7 @@ export async function syncConnection(req: Request): Promise<{
   }
 }
 
-export async function disconnectConnection(req: Request): Promise<{ body: { ok: true } }> {
+export async function disconnectConnection(req: PlaidRequest): Promise<{ body: { ok: true } }> {
   const uid = await uidFrom(req);
   const connectionId = readConnectionId(req.body);
   const db = adminDb();
@@ -238,8 +243,10 @@ export async function disconnectConnection(req: Request): Promise<{ body: { ok: 
   return { body: { ok: true } };
 }
 
-async function uidFrom(req: Request): Promise<string> {
-  const match = /^Bearer\s+(\S+)$/.exec(req.header('authorization') ?? '');
+async function uidFrom(req: PlaidRequest): Promise<string> {
+  const header = req.header('authorization');
+  const authorization = Array.isArray(header) ? header[0] : header;
+  const match = /^Bearer\s+(\S+)$/.exec(authorization ?? '');
   const token = match?.[1];
   if (!token) throw new HttpError(401, 'Sign in required');
   try {
