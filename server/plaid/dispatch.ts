@@ -43,6 +43,14 @@ export async function dispatchPlaid(
     if (failure.code) {
       return { status: 502, body: { error: failure.message, code: failure.code } };
     }
-    return { status: 500, body: { error: 'Something went wrong' } };
+    console.error('Plaid endpoint failed', error instanceof Error ? error.name : 'Error');
+    return { status: 500, body: { error: safeErrorMessage(error) } };
   }
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error) || error.message.length === 0) return 'Something went wrong';
+  const message = error.message.replace(/-----BEGIN[\s\S]*?-----END [^-]+-----/g, '').trim();
+  if (/private_key|PLAID_SECRET|BEGIN PRIVATE/i.test(message)) return 'Server configuration failed';
+  return message.slice(0, 240);
 }

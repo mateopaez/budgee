@@ -249,8 +249,9 @@ async function uidFrom(req: PlaidRequest): Promise<string> {
   const match = /^Bearer\s+(\S+)$/.exec(authorization ?? '');
   const token = match?.[1];
   if (!token) throw new HttpError(401, 'Sign in required');
+  const auth = adminAuth();
   try {
-    const decoded = await adminAuth().verifyIdToken(token);
+    const decoded = await auth.verifyIdToken(token);
     if (!decoded.uid || decoded.uid.includes('/')) throw new HttpError(401, 'Sign in required');
     return decoded.uid;
   } catch (error) {
