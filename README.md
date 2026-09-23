@@ -1,124 +1,179 @@
 # Budgee
 
-Budgee is a mobile first personal budgeting web app for Canadian dollars, built
-with Angular 21, standalone components, Angular Signals and Tailwind CSS. It is
-designed for iPhone sized screens and home screen use, and degrades to a
-centred phone shaped column on larger displays.
+Budgee is a mobile-first personal budgeting web app for Canadian dollars. It is
+built with Angular 21, standalone components, Angular Signals, and Tailwind CSS.
+Screens are designed for iPhone-sized use and home-screen install, and they
+degrade to a centred phone-shaped column on larger displays.
+
+Sign in with email and password. Data for each account lives in that user's
+own Cloud Firestore workspace. Banks connect through Plaid Production; the
+Angular app never sees the Plaid secret or an access token.
 
 ## Requirements
 
-- Node.js 20.19 or newer
-- npm 10 or newer
+- Node.js 22
+- npm 10.9 or newer
 
 ## Getting started
 
 ```bash
 npm install
+cp .env.example .env
 npm start
 ```
 
 Then open `http://localhost:4200/`.
 
-## Firebase setup
+The dev server is the Angular SSR app, so `/api/plaid/*` is available locally
+once `.env` is filled in. Bank linking is optional: you can add transactions
+by hand without Plaid credentials.
 
-The app uses the Firebase project already configured in
-`src/app/core/firebase/firebase.config.ts`. The values there are the standard
-public web app identifiers; no secrets belong in this repository.
+## Environment
 
-One sign in providers must be enabled in the Firebase console under
-**Authentication -> Sign-in method**:
+Copy `.env.example` to `.env`. These values stay on the server. Do not commit
+`.env`.
 
-- **Email/Password**
+| Variable | Purpose |
+| --- | --- |
+| `PLAID_CLIENT_ID` | Plaid client id |
+| `PLAID_SECRET` | Plaid secret. Production only. |
+| `PLAID_ENV` | Must be `production`. Sandbox is refused. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Service account used by the Plaid server to write the signed-in user's workspace |
+| `PLAID_WEBHOOK_URL` | Optional https webhook URL. Defaults to `https://budgee0.vercel.app/api/plaid/webhook` |
 
-Also add the domains you serve from to **Authentication -> Settings ->
-Authorized domains** (`localhost` is authorised by default).
+Firebase web config in `src/app/core/firebase/firebase.config.ts` is the public
+client config for project `budgee-43d31`. It is not a secret.
 
-Firestore security rules live in `firestore.rules` and scope every record to the
-signed in user. Deploy them with:
+## Firebase
+
+Enable **Email/Password** under **Authentication → Sign-in method**. Add every
+domain you serve from under **Authentication → Settings → Authorized domains**
+(`localhost` is authorised by default).
+
+Firestore security rules live in `firestore.rules`. Every record is scoped to
+`users/{uid}`. Deploy them with:
 
 ```bash
 npx firebase deploy --only firestore:rules
 ```
 
-Application data persists in Cloud Firestore under `users/{uid}`. See
-`docs/firestore-adapter.md` for the document layout, hosting SPA rewrites, and
-console setup steps. Angular Signals hold in-memory state only.
+Collections under that user document:
+
+`transactions`, `wallets`, `categories`, `categoryGroups`, `budgets`,
+`recurringPayments`, `connections`, `linkedAccounts`.
+
+Plaid access tokens are written by the server with the Firebase Admin SDK.
+The browser only receives connection metadata.
+
+## Plaid
+
+The browser asks for a short-lived link token, then posts the one-time public
+token to the server. Endpoints, all `POST`:
+
+- `/api/plaid/link-token`
+- `/api/plaid/exchange`
+- `/api/plaid/sync`
+- `/api/plaid/disconnect`
+- `/api/plaid/webhook`
+
+The webhook verifies the Plaid JWT before syncing. Locally these routes are
+registered by `server/plaid/routes.ts` on the Express SSR server. On Vercel the
+same handlers run from `api/plaid/[action].js`.
+
+A bank that was linked in Sandbox has to be connected again. Imported
+transactions stay.
 
 ## Scripts
 
 ```bash
-npm start        # development server
-npm run build    # production build
-npm test         # Vitest unit tests
+npm start                 # dev server on http://localhost:4200
+npm run build             # production build
+npm run serve:ssr:budgee  # serve the production build (port 4000, or PORT)
+npm test                  # Vitest unit tests
 ```
+
+## App
+
+After sign-up, onboarding writes either a seeded demo workspace or an empty
+one with default categories and two wallets. Either choice is stored only on
+that account.
+
+The tab bar is Budgee, Overview, Budget, Save, and Tools. Save can be hidden
+from Settings.
+
+- **Budgee** is the home feed: connection status, a greeting, and transactions grouped by day. Connect a bank or add a transaction from here.
+- **Overview** has three views of the active budget period: summary, spending, and a list. It also opens the weekly summary.
+- **Budget** plans categories for a monthly, weekly, biweekly, semi-monthly, or yearly period, then shows remaining amounts and insights (daily budget, breakdown, projection).
+- **Save** lists recurring bills detected from transactions. It does not tell the user a bill is unnecessary.
+- **Tools** covers bank connections, wallets, categories, CSV export, demo restore, clearing data, and disconnecting Plaid. Reminders are not built yet.
+
+Settings cover accent colours, decimal display, the Save tab, and default
+categories. Currency is fixed to CAD.
+
+Wallets are spending, savings, debt, or cash. Transactions are expenses,
+income, or transfers. An expense can be split across categories; a settled
+split line is left out of budget and spend totals.
+
+Imported rows that arrive without a confident category wait on
+**Review transactions** until one is set.
 
 ## Architecture
 
 ```
 src/app/
   core/
-    auth/        Firebase Auth service, friendly error mapping, route guards
-    data/        category taxonomy, demo dataset, repository ports, Firestore adapter
+    auth/        Firebase Auth, error mapping, route guards
+    data/        taxonomy, demo seed, repository port, Firestore adapter, Plaid client
     firebase/    Firebase app and Firestore initialisation
-    models/      domain models (Transaction, Budget, Wallet, Category, ...)
-    state/       the signal store and the auth/workspace session bridge
-    util/        pure functions: dates, currency, budget periods, budget maths,
-                 grouping, wallet balances and recurring payment detection
-  features/      one folder per area: auth, shell, buddy, overview, budget,
-                 save, tools, transactions, weekly-summary
+    models/      Transaction, Budget, Wallet, Category, Connection, ...
+    plaid/       map Plaid transactions and verify webhook payloads
+    state/       signal store and the auth/workspace session bridge
+    util/        dates, currency, periods, budget maths, grouping, splits,
+                 wallet balances, recurring detection
+  features/      auth, shell, budgee, overview, budget, save, tools,
+                 transactions, weekly-summary
   shared/
     charts/      line chart, donut, progress ring, month calendar
-    ui/          icon set, navigation, sheets, pickers, formatting
+    ui/          icons, navigation, sheets, pickers, money formatting
+server/plaid/    link, exchange, sync, disconnect, webhook
+api/plaid/       Vercel function entry for the same handlers
 ```
 
-Nothing in `features/` performs calculations of its own. Every total, chart,
-calendar value and budget figure is derived from `BudgetStore`, which in turn
-uses the pure functions in `core/util`, so a single transaction edit updates the
-whole app at once.
+Feature screens do not calculate totals themselves. Charts, calendars, and
+budget figures come from `BudgetStore`, which uses the pure functions in
+`core/util`. Editing one transaction updates the rest of the app.
 
 ## Budget calculations
 
-The rules are implemented once, in `core/util/budget-calc.util.ts`:
+The rules live in `core/util/budget-calc.util.ts`, with split allocation in
+`core/util/transaction-split.util.ts`:
 
-- Expense transactions reduce the availability of their category.
+- Expense transactions reduce the availability of their category. A split expense counts each unsettled line; settled lines are ignored.
 - Income transactions increase income totals only.
-- Transfers are ignored unless the budget opts into savings or debt transfers,
-  and even then they never become income or an expense.
+- Transfers are ignored unless the budget opts into savings or debt transfers, and even then they never become income or an expense.
 - Transactions excluded from the budget never affect any total.
 - `categoryRemaining = plannedAmount - includedExpenseSpend`
 - `leftToSpend = sum(planned expense) - sum(included expenses in planned expense categories)`
 - `dailyBudget = leftToSpend / max(1, remainingDaysInBudgetPeriod)`
-- Included expenses in categories with no plan are reported separately as
-  **Other expenses** and never fold into `leftToSpend`.
-- The projection assumes each bucket ends at `max(actual so far, planned)`;
-  unplanned other expenses carry at their actual value.
+- Included expenses in categories with no plan are reported separately as **Other expenses** and never fold into `leftToSpend`.
+- The projection assumes each bucket ends at `max(actual so far, planned)`; unplanned other expenses carry at their actual value.
 
-Budget periods can be monthly, weekly, biweekly, semi-monthly or yearly. Each
-period is a half open interval `[start, end)` and periods tile the calendar with
-no gaps, so a transaction belongs to exactly one period.
+Each period is a half-open interval `[start, end)` and periods tile the
+calendar with no gaps, so a transaction belongs to exactly one period.
 
 ## Demo mode
 
 Demo mode pins "today" to a fixed date so the seeded dataset always tells the
 same story. Outside demo mode the real calendar date is used. Demo data is
-generated on the client and written only into the signed in user's own
-workspace, after they choose it during onboarding or from Tools.
-
-## Bank connections
-
-Bank linking uses Plaid Production. The Angular app requests a short-lived
-link token and posts the one-time public token to the server. `PLAID_SECRET`
-and access tokens stay in server environment variables. Plaid webhooks hit
-`POST /api/plaid/webhook`, which verifies the webhook JWT before syncing.
-See `docs/future-plaid-integration.md`.
-
-Sandbox tokens were not migrated. A bank connected in Sandbox has to be
-connected again; imported transactions stay.
+generated on the client and written only into the signed-in user's workspace,
+from onboarding or from Tools. Restoring the demo set leaves an existing Plaid
+connection in place.
 
 ## Progressive web app
 
-The existing `@angular/service-worker` setup and `ngsw-config.json` are intact.
-Full offline support is not a goal of this release.
+`@angular/service-worker` and `ngsw-config.json` are enabled for production
+builds. The service worker is off in development. Full offline support is not
+a goal of this release.
 
 ## Testing
 
@@ -126,6 +181,6 @@ Full offline support is not a goal of this release.
 npm test
 ```
 
-Unit tests focus on the budgeting mathematics: totals by type, budget period
-boundaries, category remaining, excluded transactions, transfer handling, daily
-budget, calendar grouping and the recurring payment heuristic.
+Unit tests cover budgeting mathematics: totals by type, period boundaries,
+category remaining, excluded transactions, transfers, splits, daily budget,
+calendar grouping, wallet balances, and the recurring payment heuristic.
