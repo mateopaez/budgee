@@ -97,14 +97,16 @@ const ACCENTS = [
             />
           </div>
 
-          <div class="flex min-h-[3.75rem] items-center gap-3 border-t border-line">
-            <span class="flex-1 text-[1rem] text-ink">Demo mode</span>
-            <app-toggle-switch
-              label="Demo mode"
-              [checked]="prefs.demoMode"
-              (toggle)="store.setDemoMode($event)"
-            />
-          </div>
+          @if (store.dataMode() === 'demo') {
+            <div class="flex min-h-[3.75rem] items-center gap-3 border-t border-line">
+              <span class="flex-1 text-[1rem] text-ink">Demo mode</span>
+              <app-toggle-switch
+                label="Demo mode"
+                [checked]="store.demoMode()"
+                (toggle)="store.setDemoMode($event)"
+              />
+            </div>
+          }
         </section>
 
         <h2 class="mt-6 mb-2 text-[1.1rem] font-semibold text-ink-muted">Create transactions</h2>

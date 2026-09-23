@@ -43,6 +43,7 @@ export class BudgetStore {
   private readonly periodOffsetSignal = signal(0);
   private stopListening: (() => void) | null = null;
   private activeUid: string | null = null;
+  private stuckDemoModeCleared = false;
 
   readonly workspace = this.workspaceSignal.asReadonly();
   readonly status = this.statusSignal.asReadonly();
@@ -62,7 +63,14 @@ export class BudgetStore {
   readonly connections = computed(() => this.workspaceSignal()?.connections ?? []);
   readonly linkedAccounts = computed(() => this.workspaceSignal()?.linkedAccounts ?? []);
   readonly onboardingCompleted = computed(() => this.workspaceSignal()?.onboardingCompleted ?? false);
-  readonly demoMode = computed(() => this.workspaceSignal()?.preferences.demoMode ?? false);
+  /**
+   * Demo mode only applies while this account is still on the demo dataset.
+   * Resetting to real data clears it, even if an older profile left the preference on.
+   */
+  readonly demoMode = computed(() => {
+    const ws = this.workspaceSignal();
+    return !!ws && ws.dataMode === 'demo' && ws.preferences.demoMode;
+  });
   readonly dataMode = computed(() => this.workspaceSignal()?.dataMode ?? null);
 
   readonly categoriesById = computed(() => new Map(this.categories().map((c) => [c.id, c])));
@@ -137,6 +145,7 @@ export class BudgetStore {
     this.errorSignal.set(null);
     this.statusSignal.set('loading');
     this.teardownListener();
+    this.stuckDemoModeCleared = false;
     this.activeUid = identity.uid;
 
     try {
@@ -164,6 +173,7 @@ export class BudgetStore {
 
   unload(): void {
     this.teardownListener();
+    this.stuckDemoModeCleared = false;
     this.activeUid = null;
     this.workspaceSignal.set(null);
     this.statusSignal.set('idle');
@@ -481,6 +491,8 @@ export class BudgetStore {
   }
 
   setDemoMode(enabled: boolean): void {
+    const ws = this.workspaceSignal();
+    if (!ws || (enabled && ws.dataMode !== 'demo')) return;
     this.updatePreferences({ demoMode: enabled });
   }
 
@@ -542,6 +554,7 @@ export class BudgetStore {
             displayName: identity.displayName || withTaxonomy.displayName,
             email: identity.email || withTaxonomy.email,
           });
+          this.clearStuckDemoMode(withTaxonomy);
           if (this.statusSignal() === 'loading' || this.statusSignal() === 'seeding') {
             this.statusSignal.set('ready');
           }
@@ -571,6 +584,20 @@ export class BudgetStore {
       });
     }
     return { ...workspace, categories: merged };
+  }
+
+  /**
+   * Choosing demo data used to leave `preferences.demoMode` on after a reset.
+   * A manual workspace drops that flag once, so the calendar and banner follow real data.
+   */
+  private clearStuckDemoMode(workspace: Workspace): void {
+    if (workspace.dataMode === 'demo') {
+      this.stuckDemoModeCleared = false;
+      return;
+    }
+    if (!workspace.preferences.demoMode || this.stuckDemoModeCleared) return;
+    this.stuckDemoModeCleared = true;
+    this.updatePreferences({ demoMode: false });
   }
 
   private teardownListener(): void {

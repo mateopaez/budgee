@@ -11,7 +11,7 @@ import { CategoryMark } from '../../shared/ui/category-mark';
 import { cumulativeSpend } from '../../core/util/grouping.util';
 import { budgetExpenseCents } from '../../core/util/transaction-split.util';
 import { addDays, addMonths, diffDays, dueInLabel, startOfMonth } from '../../core/util/date.util';
-import type { Transaction } from '../../core/models';
+import type { ProviderConnection, Transaction } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
 
 /** The default Overview tab: a scrolling stack of data driven cards. */
@@ -315,11 +315,9 @@ export class OverviewTab {
     addMonths(startOfMonth(this.store.today()), this.calendarOffset()),
   );
 
-  protected readonly lastSynced = computed(() => {
-    const connection = this.store.connections()[0];
-    if (!connection?.lastSyncAt) return 'never';
-    return 'just now (demo data)';
-  });
+  protected readonly lastSynced = computed(() =>
+    connectionSyncLabel(connectionForAccounts(this.store.connections(), this.accounts())),
+  );
 
   protected readonly usedPercent = computed(() => {
     const s = this.summary();
@@ -384,4 +382,36 @@ export class OverviewTab {
   protected edit(tx: Transaction): void {
     void this.router.navigate(['/transactions', tx.id, 'edit']);
   }
+}
+
+/** The connection behind the accounts on screen, preferring the latest sync. */
+export function connectionForAccounts(
+  connections: readonly ProviderConnection[],
+  accounts: readonly { connectionId: string }[],
+): ProviderConnection | null {
+  const ids = new Set(accounts.map((account) => account.connectionId));
+  const related = connections.filter((connection) => ids.has(connection.id));
+  const pool = accounts.length > 0 ? related : connections;
+  return pool.reduce<ProviderConnection | null>((latest, connection) => {
+    if (!latest) return connection;
+    return (connection.lastSyncAt ?? '') > (latest.lastSyncAt ?? '') ? connection : latest;
+  }, null);
+}
+
+/**
+ * Demo connections use a pinned clock. A Plaid connection shows when it last synced.
+ */
+export function connectionSyncLabel(
+  connection: Pick<ProviderConnection, 'provider' | 'lastSyncAt'> | null,
+): string {
+  if (!connection?.lastSyncAt) return 'never';
+  if (connection.provider === 'demo') return 'just now (demo data)';
+  const date = new Date(connection.lastSyncAt);
+  if (Number.isNaN(date.getTime())) return 'never';
+  return new Intl.DateTimeFormat('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 }
