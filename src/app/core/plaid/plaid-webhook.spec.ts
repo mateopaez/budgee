@@ -1,4 +1,10 @@
-import { checkBodyHash, checkVerificationJwt, planWebhookAction } from './plaid-webhook';
+import {
+  canForgetPlaidItem,
+  checkBodyHash,
+  checkVerificationJwt,
+  isForeignPlaidAccessToken,
+  planWebhookAction,
+} from './plaid-webhook';
 
 describe('plaid webhook checks', () => {
   it('rejects a missing JWT', () => {
@@ -32,6 +38,29 @@ describe('plaid webhook checks', () => {
       });
     expect(plan).not.toThrow();
     expect(plan()).toBe('ignore');
+  });
+
+  it('treats Sandbox tokens as unusable on Production', () => {
+    expect(isForeignPlaidAccessToken('access-sandbox-00000000-0000-0000-0000-000000000000')).toBe(true);
+    expect(isForeignPlaidAccessToken('access-development-00000000-0000-0000-0000-000000000000')).toBe(
+      true,
+    );
+    expect(isForeignPlaidAccessToken('access-production-00000000-0000-0000-0000-000000000000')).toBe(
+      false,
+    );
+  });
+
+  it('forgets an Item Plaid says belongs to another environment', () => {
+    expect(canForgetPlaidItem('INVALID_ACCESS_TOKEN')).toBe(true);
+    expect(canForgetPlaidItem('ITEM_NOT_FOUND')).toBe(true);
+    expect(
+      canForgetPlaidItem(
+        'INVALID_FIELD',
+        'provided access token is for the wrong Plaid environment. expected "production", got "sandbox"',
+      ),
+    ).toBe(true);
+    expect(canForgetPlaidItem('INVALID_FIELD', 'access_token is required')).toBe(false);
+    expect(canForgetPlaidItem('ITEM_LOGIN_REQUIRED')).toBe(false);
   });
 
   it('maps ITEM_LOGIN_REQUIRED to needs_attention', () => {

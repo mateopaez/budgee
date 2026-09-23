@@ -7,7 +7,11 @@ import {
   syncCursor,
   type PlaidTransactionInput,
 } from '../../src/app/core/plaid/map-plaid-transaction';
-import { isPlaidItemGone, isRejectedPlaidToken } from '../../src/app/core/plaid/plaid-webhook';
+import {
+  canForgetPlaidItem,
+  isForeignPlaidAccessToken,
+  isRejectedPlaidToken,
+} from '../../src/app/core/plaid/plaid-webhook';
 import type { LinkedAccount, ProviderConnection, Transaction } from '../../src/app/core/models';
 import { linkCountries, linkProducts, plaidClient, plaidFailure } from './client';
 import { HttpError, plaidWebhookUrl } from './config';
@@ -245,28 +249,50 @@ export async function disconnectConnection(req: PlaidRequest): Promise<{ body: {
 
   if (item) {
     await disconnectStoredItem(db, item);
-  } else if (connection.exists) {
-    await connectionRef.set({ status: 'disconnected' }, { merge: true });
+  } else {
+    await removePublicConnection(db, uid, connectionId);
   }
   return { body: { ok: true } };
 }
 
-/** Revokes the Item when Plaid still has it. An already-invalid Item is still removed locally. */
+/**
+ * Revokes the Item when Production still has it.
+ * Sandbox tokens are deleted locally: Production cannot call `/item/remove` for them.
+ * Imported transactions stay.
+ */
 export async function disconnectStoredItem(db: Firestore, item: StoredPlaidItem): Promise<void> {
-  try {
-    await plaidClient().itemRemove({ access_token: item.accessToken });
-  } catch (error) {
-    const failure = plaidFailure(error);
-    if (!isPlaidItemGone(failure.code)) {
-      throw new HttpError(502, failure.message, failure.code ?? undefined);
+  if (!isForeignPlaidAccessToken(item.accessToken)) {
+    try {
+      await plaidClient().itemRemove({ access_token: item.accessToken });
+    } catch (error) {
+      const failure = plaidFailure(error);
+      if (!canForgetPlaidItem(failure.code, failure.message)) {
+        throw new HttpError(502, failure.message, failure.code ?? undefined);
+      }
     }
   }
   await item.ref.delete();
-  const connectionRef = db.doc(`users/${item.uid}/connections/${item.connectionId}`);
-  const connection = await connectionRef.get();
+  await removePublicConnection(db, item.uid, item.connectionId);
+}
+
+/** Deletes the bank row and its accounts. Transactions that already imported are left alone. */
+async function removePublicConnection(db: Firestore, uid: string, connectionId: string): Promise<void> {
+  const connectionRef = db.doc(`users/${uid}/connections/${connectionId}`);
+  const [connection, accounts] = await Promise.all([
+    connectionRef.get(),
+    db.collection(`users/${uid}/linkedAccounts`).where('connectionId', '==', connectionId).get(),
+  ]);
+  const batch = db.batch();
+  let writes = 0;
   if (connection.exists) {
-    await connectionRef.set({ status: 'disconnected' }, { merge: true });
+    batch.delete(connectionRef);
+    writes += 1;
   }
+  for (const account of accounts.docs) {
+    batch.delete(account.ref);
+    writes += 1;
+  }
+  if (writes > 0) await batch.commit();
 }
 
 async function uidFrom(req: PlaidRequest): Promise<string> {

@@ -104,6 +104,24 @@ export function isPlaidItemGone(code: string | null | undefined): boolean {
   return code === 'ITEM_NOT_FOUND' || code === 'INVALID_ACCESS_TOKEN';
 }
 
+/**
+ * Sandbox and Development tokens cannot be revoked with Production credentials.
+ * Calling `/item/remove` with one returns a wrong-environment error and leaves the link in place.
+ */
+export function isForeignPlaidAccessToken(token: string): boolean {
+  return token.startsWith('access-sandbox-') || token.startsWith('access-development-');
+}
+
+/**
+ * Production refused this token because it belongs to another environment, or the Item is already gone.
+ * The local connection can be deleted. A live Production Item is not in this set.
+ */
+export function canForgetPlaidItem(code: string | null | undefined, message?: string | null): boolean {
+  if (isPlaidItemGone(code)) return true;
+  if (code !== 'INVALID_FIELD' || typeof message !== 'string') return false;
+  return message.toLowerCase().includes('wrong plaid environment');
+}
+
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }

@@ -7,8 +7,9 @@ not run that Express app, so hosted calls go through the CommonJS function
 `api/plaid/[action].js`. Both paths call Plaid Production only. `PLAID_ENV`
 must be the exact string `production`.
 
-Access tokens created in Sandbox were not migrated. Those connections need the
-bank connected again. Imported transactions are kept.
+Access tokens created in Sandbox were not migrated. Disconnect removes those
+connections locally, because Production cannot revoke a Sandbox token.
+Imported transactions are kept.
 
 ## What ships
 
@@ -47,7 +48,7 @@ the sync cursor.
 | `POST /api/plaid/link-token` | Create a `link_token` for the signed-in user. Subscribes the Item to the webhook URL. | Firebase ID token |
 | `POST /api/plaid/exchange` | Exchange the Link `public_token`, store the access token, write the public connection and accounts | Firebase ID token |
 | `POST /api/plaid/sync` | Call `/transactions/sync` with the stored cursor and write normalised transactions | Firebase ID token |
-| `POST /api/plaid/disconnect` | Call `/item/remove`, delete the secret Item, mark the connection `disconnected` | Firebase ID token |
+| `POST /api/plaid/disconnect` | Call `/item/remove` for a Production Item. Sandbox tokens are dropped locally. Delete the secret Item, the connection, and its linked accounts. Keep imported transactions. | Firebase ID token |
 | `POST /api/plaid/webhook` | Verify Plaid's webhook JWT, then sync or update status for that Item | Plaid JWT only |
 
 Every user-facing endpoint verifies the Firebase ID token and derives the uid

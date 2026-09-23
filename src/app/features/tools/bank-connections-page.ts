@@ -108,8 +108,8 @@ const NO_WALLET = '__none__';
                   }
                 </span>
               </div>
-              @if (connection.status !== 'disconnected') {
-                <div class="mt-3 flex gap-2">
+              <div class="mt-3 flex gap-2">
+                @if (connection.status !== 'disconnected') {
                   <button
                     type="button"
                     class="min-h-11 flex-1 rounded-full border border-line text-[0.95rem] font-semibold text-ink disabled:opacity-60"
@@ -119,17 +119,20 @@ const NO_WALLET = '__none__';
                   >
                     {{ busyId() === connection.id ? 'Syncing…' : 'Sync' }}
                   </button>
-                  <button
-                    type="button"
-                    class="min-h-11 flex-1 rounded-full border border-line text-[0.95rem] font-semibold text-ink disabled:opacity-60"
-                    [disabled]="busyId() === connection.id"
-                    [attr.aria-label]="'Disconnect ' + connection.institutionName"
-                    (click)="disconnect(connection)"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              }
+                }
+                <button
+                  type="button"
+                  class="min-h-11 flex-1 rounded-full border border-line text-[0.95rem] font-semibold text-ink disabled:opacity-60"
+                  [disabled]="busyId() === connection.id"
+                  [attr.aria-label]="
+                    (connection.status === 'disconnected' ? 'Remove ' : 'Disconnect ') +
+                    connection.institutionName
+                  "
+                  (click)="disconnect(connection)"
+                >
+                  {{ connection.status === 'disconnected' ? 'Remove' : 'Disconnect' }}
+                </button>
+              </div>
               @if (accountsFor(connection.id); as accounts) {
                 @if (accounts.length > 0) {
                   <p class="mt-4 text-[0.82rem] leading-relaxed text-ink-muted">
@@ -354,10 +357,13 @@ export class BankConnectionsPage {
 
   protected async disconnect(connection: ProviderConnection): Promise<void> {
     if (this.busyId()) return;
+    const alreadyGone = connection.status === 'disconnected';
     const confirmed = await this.confirm.ask({
-      title: `Disconnect ${connection.institutionName}?`,
+      title: alreadyGone
+        ? `Remove ${connection.institutionName}?`
+        : `Disconnect ${connection.institutionName}?`,
       message: 'Imported transactions stay in Budgee. The bank link is removed.',
-      confirmLabel: 'Disconnect',
+      confirmLabel: alreadyGone ? 'Remove' : 'Disconnect',
       cancelLabel: 'Cancel',
     });
     if (!confirmed) return;

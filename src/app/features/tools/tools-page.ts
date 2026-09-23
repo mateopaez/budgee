@@ -301,7 +301,7 @@ export class ToolsPage {
     this.disconnectError.set(null);
     const connections = this.store
       .connections()
-      .filter((connection) => connection.provider === 'plaid' && connection.status !== 'disconnected');
+      .filter((connection) => connection.provider === 'plaid');
     if (connections.length === 0) {
       this.notice.set('No Plaid bank is connected.');
       return;
