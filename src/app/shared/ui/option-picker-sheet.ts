@@ -37,6 +37,22 @@ export interface PickerOption {
         </div>
       }
 
+      @if (actionLabel(); as label) {
+        <button
+          type="button"
+          class="mb-2 flex min-h-[3.5rem] w-full items-center gap-3 rounded-[1rem] px-2 text-left"
+          (click)="action.emit()"
+        >
+          <span
+            class="flex size-10 items-center justify-center rounded-full bg-raised text-ink"
+            aria-hidden="true"
+          >
+            <app-icon name="plus" [size]="20" />
+          </span>
+          <span class="text-[0.98rem] text-ink">{{ label }}</span>
+        </button>
+      }
+
       @for (group of grouped(); track group.name) {
         @if (group.name) {
           <h2 class="mt-4 mb-2 text-[0.72rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
@@ -77,7 +93,9 @@ export interface PickerOption {
       }
 
       @if (grouped().length === 0) {
-        <p class="py-10 text-center text-[0.95rem] text-ink-muted">Nothing matches that search.</p>
+        <p class="py-10 text-center text-[0.95rem] text-ink-muted">
+          {{ options().length === 0 ? emptyLabel() : 'Nothing matches that search.' }}
+        </p>
       }
     </app-sheet-shell>
   `,
@@ -87,7 +105,11 @@ export class OptionPickerSheet {
   readonly options = input.required<readonly PickerOption[]>();
   readonly selected = input<string | null>(null);
   readonly searchable = input(true);
+  readonly emptyLabel = input('Nothing to choose.');
+  /** Extra row shown above the options, such as creating a new category. */
+  readonly actionLabel = input<string | null>(null);
   readonly choose = output<string>();
+  readonly action = output<void>();
   readonly cancel = output<void>();
 
   protected readonly query = signal('');

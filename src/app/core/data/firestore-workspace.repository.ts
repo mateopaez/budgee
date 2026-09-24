@@ -307,6 +307,18 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
     await this.deleteDoc(uid, 'wallets', walletId);
   }
 
+  async upsertCategoryGroup(uid: string, group: CategoryGroup): Promise<void> {
+    await setDoc(
+      doc(this.db, 'users', uid, 'categoryGroups', group.id),
+      categoryGroupToDoc(group),
+    );
+    await this.touchUser(uid);
+  }
+
+  async removeCategoryGroup(uid: string, groupId: string): Promise<void> {
+    await this.deleteDoc(uid, 'categoryGroups', groupId);
+  }
+
   async upsertCategory(uid: string, category: Category): Promise<void> {
     await setDoc(doc(this.db, 'users', uid, 'categories', category.id), categoryToDoc(category));
     await this.touchUser(uid);

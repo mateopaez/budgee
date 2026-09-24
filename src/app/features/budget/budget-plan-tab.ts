@@ -6,8 +6,9 @@ import { DonutChart, type DonutSegment } from '../../shared/charts/donut-chart';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { Icon } from '../../shared/ui/icon';
 import { OptionPickerSheet, type PickerOption } from '../../shared/ui/option-picker-sheet';
+import { blankCategory, CategoryEditorSheet } from '../../shared/ui/category-editor-sheet';
 import { parseMoneyToCents } from '../../core/util/currency.util';
-import type { BudgetCategoryPlan, PlanKind } from '../../core/models';
+import type { BudgetCategoryPlan, Category, CategoryKind, PlanKind } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
 
 interface PlanRow {
@@ -30,12 +31,12 @@ interface PlanGroup {
 @Component({
   selector: 'app-budget-plan-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PeriodSelector, DonutChart, CategoryMark, Icon, OptionPickerSheet],
+  imports: [PeriodSelector, DonutChart, CategoryMark, Icon, OptionPickerSheet, CategoryEditorSheet],
   host: { class: 'flex flex-col gap-4 pt-1' },
   template: `
     <app-period-selector [label]="periodLabel()" (step)="store.stepPeriod($event)" />
 
-    @if (plannedTotalCents() === 0) {
+    @if (allGroups().length === 0) {
       <section class="rounded-[1.5rem] bg-raised p-6 text-center">
         <h2 class="text-[1.15rem] font-semibold text-ink">Nothing planned yet</h2>
         <p class="mt-2 text-[0.92rem] leading-relaxed text-ink-muted">
@@ -113,7 +114,7 @@ interface PlanGroup {
             <button
               type="button"
               class="flex min-h-[4rem] w-full items-center gap-3 text-left"
-              (click)="openPicker(group.kind)"
+              (click)="openPicker(group.kind, group.id)"
             >
               <span
                 class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink"
@@ -139,12 +140,26 @@ interface PlanGroup {
       </button>
     }
 
-    @if (pickerKind(); as kind) {
+    @if (picker(); as target) {
       <app-option-picker-sheet
-        [title]="kind === 'income' ? 'Income categories' : 'Categories'"
+        [title]="pickerTitle()"
         [options]="pickerOptions()"
+        [emptyLabel]="target.groupId ? 'Every category in this group is already on the plan.' : 'Nothing to choose.'"
+        [actionLabel]="target.groupId ? 'Create a category' : null"
         (choose)="addPlan($event)"
-        (cancel)="pickerKind.set(null)"
+        (action)="startCreateCategory()"
+        (cancel)="picker.set(null)"
+      />
+    }
+
+    @if (newCategory(); as category) {
+      <app-category-editor-sheet
+        [category]="category"
+        [isNew]="true"
+        [lockKind]="true"
+        [lockGroup]="true"
+        (saved)="saveNewCategory($event)"
+        (dismissed)="newCategory.set(null)"
       />
     }
   `,
@@ -154,7 +169,9 @@ export class BudgetPlanTab {
   protected readonly money = inject(MoneyFormat);
   protected readonly Math = Math;
 
-  protected readonly pickerKind = signal<PlanKind | null>(null);
+  /** `groupId` is set when the picker was opened from one plan group. */
+  protected readonly picker = signal<{ kind: PlanKind; groupId: string | null } | null>(null);
+  protected readonly newCategory = signal<Category | null>(null);
 
   protected readonly periodLabel = computed(() => this.store.activePeriod()?.label ?? '');
 
@@ -201,20 +218,28 @@ export class BudgetPlanTab {
     })),
   );
 
+  protected readonly pickerTitle = computed(() => {
+    const target = this.picker();
+    if (!target) return 'Categories';
+    if (target.groupId) return this.store.groupsById().get(target.groupId)?.name ?? 'Categories';
+    return target.kind === 'income' ? 'Income categories' : 'Categories';
+  });
+
   protected readonly pickerOptions = computed<PickerOption[]>(() => {
-    const kind = this.pickerKind();
+    const target = this.picker();
+    if (!target) return [];
     const planned = new Set(this.plans().map((p) => p.categoryId));
     const groups = this.store.groupsById();
     return this.store
       .categories()
       .filter((c) => !planned.has(c.id) && !c.archived)
-      .filter((c) => (kind === 'income' ? c.kind !== 'expense' : c.kind === 'expense'))
+      .filter((c) => (target.groupId ? c.groupId === target.groupId : this.matchesKind(c.kind, target.kind)))
       .map((c) => ({
         id: c.id,
         label: c.name,
         icon: c.icon,
         color: c.color,
-        groupName: groups.get(c.groupId)?.name ?? 'Other',
+        groupName: target.groupId ? undefined : (groups.get(c.groupId)?.name ?? 'Other'),
       }));
   });
 
@@ -277,8 +302,24 @@ export class BudgetPlanTab {
     });
   }
 
-  protected openPicker(kind: PlanKind): void {
-    this.pickerKind.set(kind);
+  protected openPicker(kind: PlanKind, groupId: string | null = null): void {
+    this.picker.set({ kind, groupId });
+  }
+
+  protected startCreateCategory(): void {
+    const target = this.picker();
+    if (!target?.groupId) return;
+    const group = this.store.groupsById().get(target.groupId);
+    this.newCategory.set({
+      ...blankCategory(target.groupId, this.categoryKindFor(target.groupId, target.kind)),
+      color: group?.color ?? 'var(--color-cat-misc)',
+    });
+  }
+
+  protected saveNewCategory(category: Category): void {
+    this.store.upsertCategory(category);
+    this.newCategory.set(null);
+    this.addPlan(category.id);
   }
 
   protected addPlan(categoryId: string): void {
@@ -294,6 +335,18 @@ export class BudgetPlanTab {
         { categoryId, plannedCents: 0, kind, expenseKind: 'variable' },
       ],
     });
-    this.pickerKind.set(null);
+    this.picker.set(null);
+  }
+
+  /** Categories already in the group decide the kind of a category created from that section. */
+  private categoryKindFor(groupId: string, sectionKind: PlanKind): CategoryKind {
+    if (sectionKind === 'income') return 'income';
+    const inGroup = this.store.categories().filter((c) => c.groupId === groupId && !c.archived);
+    if (inGroup.length > 0 && inGroup.every((c) => c.kind !== 'expense')) return 'income';
+    return 'expense';
+  }
+
+  private matchesKind(categoryKind: CategoryKind, sectionKind: PlanKind): boolean {
+    return sectionKind === 'income' ? categoryKind !== 'expense' : categoryKind === 'expense';
   }
 }

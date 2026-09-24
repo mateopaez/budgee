@@ -54,7 +54,9 @@ export class BudgetStore {
     () => this.workspaceSignal()?.preferences ?? null,
   );
   readonly categories = computed<readonly Category[]>(() => this.workspaceSignal()?.categories ?? []);
-  readonly groups = computed<readonly CategoryGroup[]>(() => this.workspaceSignal()?.groups ?? []);
+  readonly groups = computed<readonly CategoryGroup[]>(() =>
+    [...(this.workspaceSignal()?.groups ?? [])].sort((a, b) => a.order - b.order),
+  );
   readonly wallets = computed<readonly Wallet[]>(() => this.workspaceSignal()?.wallets ?? []);
   readonly budgets = computed<readonly Budget[]>(() => this.workspaceSignal()?.budgets ?? []);
   readonly transactions = computed<readonly Transaction[]>(
@@ -323,6 +325,46 @@ export class BudgetStore {
     if (local) return local;
     if (!this.activeUid) return null;
     return this.repository.getTransaction(this.activeUid, id);
+  }
+
+  upsertGroup(group: CategoryGroup): void {
+    this.patch((ws) => {
+      const exists = ws.groups.some((g) => g.id === group.id);
+      return {
+        ...ws,
+        groups: exists ? ws.groups.map((g) => (g.id === group.id ? group : g)) : [...ws.groups, group],
+      };
+    });
+    if (this.activeUid) {
+      void this.persist(() => this.repository.upsertCategoryGroup(this.activeUid as string, group));
+    }
+  }
+
+  /**
+   * Removes a group and moves every category that used it onto `replacementId`.
+   * Callers must keep at least one group.
+   */
+  deleteGroup(id: string, replacementId: string): void {
+    let moved: Category[] = [];
+    this.patch((ws) => {
+      moved = ws.categories
+        .filter((c) => c.groupId === id)
+        .map((c) => ({ ...c, groupId: replacementId }));
+      const movedIds = new Set(moved.map((c) => c.id));
+      return {
+        ...ws,
+        groups: ws.groups.filter((g) => g.id !== id),
+        categories: ws.categories.map((c) => (movedIds.has(c.id) ? { ...c, groupId: replacementId } : c)),
+      };
+    });
+    if (!this.activeUid) return;
+    const uid = this.activeUid;
+    void this.persist(async () => {
+      await this.repository.removeCategoryGroup(uid, id);
+      for (const category of moved) {
+        await this.repository.upsertCategory(uid, category);
+      }
+    });
   }
 
   upsertCategory(category: Category): void {

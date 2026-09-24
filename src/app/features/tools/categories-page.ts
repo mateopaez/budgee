@@ -2,30 +2,17 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 import { Icon } from '../../shared/ui/icon';
 import { CategoryMark } from '../../shared/ui/category-mark';
-import { SheetShell } from '../../shared/ui/sheet-shell';
+import { blankCategory, CategoryEditorSheet } from '../../shared/ui/category-editor-sheet';
 import { BudgetStore } from '../../core/state/budget-store';
 import { ConfirmService } from '../../shared/ui/confirm.service';
-import { createId } from '../../core/util/id.util';
 import { CATEGORY_IDS } from '../../core/data/taxonomy';
 import type { Category, CategoryKind } from '../../core/models';
-import { ICONS, type IconName } from '../../shared/ui/icon-set';
-
-const PALETTE = [
-  'var(--color-cat-housing)',
-  'var(--color-cat-food)',
-  'var(--color-cat-entertainment)',
-  'var(--color-cat-transport)',
-  'var(--color-cat-lifestyle)',
-  'var(--color-cat-savings)',
-  'var(--color-cat-income)',
-  'var(--color-cat-misc)',
-];
 
 /** Create, rename and remove categories. */
 @Component({
   selector: 'app-categories-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, Icon, CategoryMark, SheetShell],
+  imports: [RouterLink, Icon, CategoryMark, CategoryEditorSheet],
   host: { class: 'flex min-h-[100dvh] flex-col' },
   template: `
     <main
@@ -77,133 +64,19 @@ const PALETTE = [
     </main>
 
     @if (editing(); as draft) {
-      <app-sheet-shell
-        [title]="isNew() ? 'New category' : 'Edit category'"
-        (dismiss)="editing.set(null)"
-      >
-        <label class="mt-2 block rounded-[1.25rem] bg-raised px-4 py-3">
-          <span class="block text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Name
-          </span>
-          <input
-            type="text"
-            class="mt-1 min-h-[2.5rem] w-full bg-transparent text-[1.1rem] text-ink outline-none"
-            [value]="draft.name"
-            (input)="patch({ name: $any($event.target).value })"
-          />
-        </label>
-
-        <fieldset class="mt-4">
-          <legend class="text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Type
-          </legend>
-          <div class="mt-2 flex gap-2">
-            @for (kind of kinds; track kind) {
-              <button
-                type="button"
-                class="min-h-[2.75rem] flex-1 rounded-full text-[0.85rem] font-semibold"
-                [style.background]="draft.kind === kind ? 'var(--color-accent)' : 'var(--color-raised)'"
-                [style.color]="draft.kind === kind ? 'var(--color-accent-ink)' : 'var(--color-ink-muted)'"
-                [attr.aria-pressed]="draft.kind === kind"
-                (click)="patch({ kind })"
-              >
-                {{ kindLabel(kind) }}
-              </button>
-            }
-          </div>
-        </fieldset>
-
-        <fieldset class="mt-5">
-          <legend class="text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Group
-          </legend>
-          <div class="mt-2 flex flex-wrap gap-2">
-            @for (group of store.groups(); track group.id) {
-              <button
-                type="button"
-                class="min-h-[2.5rem] rounded-full px-4 text-[0.85rem]"
-                [style.background]="draft.groupId === group.id ? 'var(--color-raised-2)' : 'var(--color-raised)'"
-                [style.color]="draft.groupId === group.id ? 'var(--color-ink)' : 'var(--color-ink-muted)'"
-                [attr.aria-pressed]="draft.groupId === group.id"
-                (click)="patch({ groupId: group.id })"
-              >
-                {{ group.name }}
-              </button>
-            }
-          </div>
-        </fieldset>
-
-        <fieldset class="mt-5">
-          <legend class="text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Colour
-          </legend>
-          <div class="mt-2 flex flex-wrap gap-3">
-            @for (color of palette; track color) {
-              <button
-                type="button"
-                class="size-9 rounded-full border-2"
-                [style.background]="color"
-                [style.border-color]="draft.color === color ? 'var(--color-ink)' : 'transparent'"
-                [attr.aria-pressed]="draft.color === color"
-                [attr.aria-label]="'Colour ' + color"
-                (click)="patch({ color })"
-              ></button>
-            }
-          </div>
-        </fieldset>
-
-        <fieldset class="mt-5">
-          <legend class="text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Icon
-          </legend>
-          <div class="mt-2 grid grid-cols-6 gap-2">
-            @for (icon of iconNames; track icon) {
-              <button
-                type="button"
-                class="flex size-12 items-center justify-center rounded-2xl"
-                [style.background]="draft.icon === icon ? 'color-mix(in srgb, var(--color-accent) 25%, transparent)' : 'var(--color-raised)'"
-                [style.color]="draft.icon === icon ? 'var(--color-accent)' : 'var(--color-ink-muted)'"
-                [attr.aria-pressed]="draft.icon === icon"
-                [attr.aria-label]="'Icon ' + icon"
-                (click)="patch({ icon })"
-              >
-                <app-icon [name]="icon" [size]="20" />
-              </button>
-            }
-          </div>
-        </fieldset>
-
-        @if (!isNew() && !draft.system) {
-          <button
-            type="button"
-            class="mt-6 min-h-[3.25rem] w-full rounded-full border border-line-strong text-[0.95rem] font-semibold"
-            style="color: #ffa9ac"
-            (click)="remove(draft)"
-          >
-            Delete category
-          </button>
-        }
-
-        <div sheetFooter class="pt-4">
-          <button
-            type="button"
-            class="min-h-[3.4rem] w-full rounded-full bg-white text-[1rem] font-semibold text-ink-inverse"
-            (click)="save()"
-          >
-            Save
-          </button>
-        </div>
-      </app-sheet-shell>
+      <app-category-editor-sheet
+        [category]="draft"
+        [isNew]="isNew()"
+        (saved)="save($event)"
+        (removed)="remove($event)"
+        (dismissed)="editing.set(null)"
+      />
     }
   `,
 })
 export class CategoriesPage {
   protected readonly store = inject(BudgetStore);
   private readonly confirm = inject(ConfirmService);
-
-  protected readonly palette = PALETTE;
-  protected readonly kinds: CategoryKind[] = ['expense', 'income', 'transfer'];
-  protected readonly iconNames = Object.keys(ICONS) as IconName[];
 
   protected readonly editing = signal<Category | null>(null);
   protected readonly isNew = signal(false);
@@ -226,14 +99,7 @@ export class CategoriesPage {
 
   protected startCreate(): void {
     this.isNew.set(true);
-    this.editing.set({
-      id: createId('cat'),
-      name: '',
-      groupId: this.store.groups()[0]?.id ?? '',
-      kind: 'expense',
-      icon: 'box',
-      color: PALETTE[0],
-    });
+    this.editing.set(blankCategory(this.store.groups()[0]?.id ?? ''));
   }
 
   protected startEdit(category: Category): void {
@@ -241,16 +107,8 @@ export class CategoriesPage {
     this.editing.set(category);
   }
 
-  protected patch(patch: Partial<Category>): void {
-    this.editing.update((current) => (current ? { ...current, ...patch } : current));
-  }
-
-  protected save(): void {
-    const draft = this.editing();
-    if (!draft) return;
-    const name = draft.name.trim();
-    if (!name) return;
-    this.store.upsertCategory({ ...draft, name });
+  protected save(category: Category): void {
+    this.store.upsertCategory(category);
     this.editing.set(null);
   }
 

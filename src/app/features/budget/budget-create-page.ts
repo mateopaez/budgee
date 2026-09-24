@@ -1,9 +1,19 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { SheetShell } from '../../shared/ui/sheet-shell';
 import { Icon } from '../../shared/ui/icon';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { OptionPickerSheet, type PickerOption } from '../../shared/ui/option-picker-sheet';
+import { blankCategory, CategoryEditorSheet } from '../../shared/ui/category-editor-sheet';
 import { BudgetStore } from '../../core/state/budget-store';
 import { BudgetDraftService } from './budget-draft.service';
 import {
@@ -18,7 +28,8 @@ import {
 import { createId } from '../../core/util/id.util';
 import { parseMoneyToCents } from '../../core/util/currency.util';
 import { startOfWeek } from '../../core/util/date.util';
-import type { Budget, BudgetCategoryPlan, BudgetPeriodType } from '../../core/models';
+import { GROUP_IDS } from '../../core/data/taxonomy';
+import type { Budget, BudgetCategoryPlan, BudgetPeriodType, Category } from '../../core/models';
 
 type Picker = 'periodType' | 'periodStart' | 'income' | 'category' | null;
 
@@ -31,7 +42,7 @@ const ICON_CHOICES = ['home', 'heart', 'banknote', 'car', 'star', 'cart', 'piggy
 @Component({
   selector: 'app-budget-create-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SheetShell, Icon, CategoryMark, OptionPickerSheet],
+  imports: [SheetShell, Icon, CategoryMark, OptionPickerSheet, CategoryEditorSheet],
   template: `
     <app-sheet-shell
       [title]="stepTitle()"
@@ -189,6 +200,20 @@ const ICON_CHOICES = ['home', 'heart', 'banknote', 'car', 'star', 'cart', 'piggy
             </p>
           </div>
 
+          <button
+            type="button"
+            class="mt-6 flex min-h-[4rem] w-full items-center gap-3 text-left"
+            (click)="startCreateCategory()"
+          >
+            <span
+              class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink"
+              aria-hidden="true"
+            >
+              <app-icon name="plus" [size]="20" />
+            </span>
+            <span class="text-[1rem] text-ink">Create a category</span>
+          </button>
+
           @for (group of categoryGroups(); track group.id) {
             <h3 class="mt-6 mb-2 text-[0.72rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
               {{ group.name }}
@@ -200,6 +225,7 @@ const ICON_CHOICES = ['home', 'heart', 'banknote', 'car', 'star', 'cart', 'piggy
                   class="flex flex-col items-center gap-1.5 rounded-[1rem] px-1 py-2"
                   [class.bg-raised]="isChosen(category.id)"
                   [attr.aria-pressed]="isChosen(category.id)"
+                  [attr.data-category-id]="category.id"
                   (click)="toggleCategory(category.id)"
                 >
                   <app-category-mark
@@ -265,14 +291,27 @@ const ICON_CHOICES = ['home', 'heart', 'banknote', 'car', 'star', 'cart', 'piggy
         />
       }
     }
+
+    @if (newCategory(); as category) {
+      <app-category-editor-sheet
+        [category]="category"
+        [isNew]="true"
+        [lockKind]="true"
+        (saved)="saveNewCategory($event)"
+        (dismissed)="newCategory.set(null)"
+      />
+    }
   `,
 })
 export class BudgetCreatePage {
   private readonly store = inject(BudgetStore);
   protected readonly drafts = inject(BudgetDraftService);
   private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly injector = inject(Injector);
 
   protected readonly picker = signal<Picker>(null);
+  protected readonly newCategory = signal<Category | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly icons = ICON_CHOICES;
   protected readonly periodTypes = PERIOD_TYPE_OPTIONS;
@@ -394,6 +433,34 @@ export class BudgetCreatePage {
     this.drafts.patch({
       incomes: this.draft().incomes.filter((i) => i.categoryId !== categoryId),
     });
+  }
+
+  protected startCreateCategory(): void {
+    const groups = this.store.groups();
+    const groupId =
+      groups.find((group) => group.id === GROUP_IDS.misc)?.id ??
+      groups.find((group) => group.id !== GROUP_IDS.income)?.id ??
+      groups[0]?.id ??
+      '';
+    this.newCategory.set(blankCategory(groupId, 'expense'));
+  }
+
+  protected saveNewCategory(category: Category): void {
+    this.store.upsertCategory(category);
+    const current = this.draft().categoryIds;
+    if (!current.includes(category.id)) {
+      this.drafts.patch({ categoryIds: [...current, category.id] });
+    }
+    this.error.set(null);
+    this.newCategory.set(null);
+    afterNextRender(
+      () => {
+        this.host.nativeElement
+          .querySelector(`[data-category-id="${category.id}"]`)
+          ?.scrollIntoView({ block: 'center' });
+      },
+      { injector: this.injector },
+    );
   }
 
   protected toggleCategory(id: string): void {
