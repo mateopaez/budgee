@@ -5,7 +5,7 @@ import {
   writeResponseToNodeResponse,
 } from '@angular/ssr/node';
 import express from 'express';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { loadLocalEnv } from '../server/plaid/config';
 import { registerPlaidRoutes } from '../server/plaid/routes';
 
@@ -19,25 +19,64 @@ const angularApp = new AngularNodeAppEngine();
 registerPlaidRoutes(app);
 
 /**
+ * Fingerprinted bundles can stay cached. The worker, its manifest, and HTML
+ * must revalidate, or a previous visit keeps the old build for up to a year.
+ */
+function revalidatesOnEachLoad(filePath: string): boolean {
+  const name = basename(filePath);
+  return (
+    name === 'ngsw.json' ||
+    name === 'ngsw-worker.js' ||
+    name === 'safety-worker.js' ||
+    name === 'worker-basic.min.js' ||
+    name === 'manifest.webmanifest' ||
+    name === 'favicon.ico' ||
+    filePath.endsWith('.html')
+  );
+}
+
+/**
  * Serve static files from /browser
  */
 app.use(
   express.static(browserDistFolder, {
     maxAge: '1y',
+    immutable: true,
     index: false,
     redirect: false,
+    setHeaders(res, filePath) {
+      if (revalidatesOnEachLoad(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
   }),
 );
 
 /**
  * Handle all other requests by rendering the Angular application.
+ * Documents are not cached, so the next visit receives the latest shell.
  */
 app.use((req, res, next) => {
   angularApp
     .handle(req)
-    .then((response) =>
-      response ? writeResponseToNodeResponse(response, res) : next(),
-    )
+    .then((response) => {
+      if (!response) {
+        next();
+        return;
+      }
+      const headers = new Headers(response.headers);
+      if (!headers.has('Cache-Control')) {
+        headers.set('Cache-Control', 'no-cache');
+      }
+      return writeResponseToNodeResponse(
+        new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        }),
+        res,
+      );
+    })
     .catch(next);
 });
 
