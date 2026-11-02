@@ -2,6 +2,18 @@ import { CATEGORY_IDS } from '../data/taxonomy';
 import type { LinkedAccountType } from '../models/connection.model';
 import type { CurrencyCode } from '../models/money.model';
 import type { Transaction } from '../models/transaction.model';
+import { addDays, type IsoDate } from '../util/date.util';
+
+/**
+ * Plaid's Transactions default is 90 days. Production will not request fewer
+ * than 30, so one month is the shortest history a new connection can pull.
+ */
+export const TRANSACTION_HISTORY_DAYS = 30;
+
+/** First calendar day included in a sync window of {@link TRANSACTION_HISTORY_DAYS}. */
+export function transactionHistoryStart(today: IsoDate): IsoDate {
+  return addDays(today, -(TRANSACTION_HISTORY_DAYS - 1));
+}
 
 /**
  * Pure Plaid → Budgee mapping. This file imports neither the Plaid SDK nor
@@ -34,6 +46,11 @@ export interface ApplyPlaidSyncInput {
   readonly accountsByPlaidId: ReadonlyMap<string, PlaidAccountLink>;
   readonly now: string;
   readonly createId: () => string;
+  /**
+   * When set, new rows dated before this day are skipped. Updates to rows
+   * already stored still apply, so a shorter window does not freeze old edits.
+   */
+  readonly oldestDate?: IsoDate;
 }
 
 export interface PlaidSyncUpsert {
@@ -97,6 +114,10 @@ export function applyPlaidSync(input: ApplyPlaidSyncInput): ApplyPlaidSyncResult
 
   const consider = (row: PlaidTransactionInput): void => {
     const prior = byExternal.get(row.transactionId);
+    if (!prior && input.oldestDate && row.date < input.oldestDate) {
+      skipped += 1;
+      return;
+    }
     const mapped = mapOne(row, prior, input);
     if (!mapped) {
       skipped += 1;

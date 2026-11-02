@@ -5,6 +5,8 @@ import {
   applyPlaidSync,
   mapPlaidAccountKind,
   syncCursor,
+  TRANSACTION_HISTORY_DAYS,
+  transactionHistoryStart,
   walletIdsForImport,
   type PlaidAccountLink,
   type PlaidTransactionInput,
@@ -168,6 +170,39 @@ describe('applyPlaidSync', () => {
       toWalletId: 'wal_spending',
     });
     expect(walletIdsForImport('expense', null)).toEqual({ fromWalletId: null, toWalletId: null });
+  });
+
+  it('covers one month, including today', () => {
+    expect(TRANSACTION_HISTORY_DAYS).toBe(30);
+    expect(transactionHistoryStart('2026-11-02')).toBe('2026-10-04');
+  });
+
+  it('skips new rows older than the sync window and still updates stored ones', () => {
+    const existing = makeTransaction({
+      id: 'tx_old',
+      externalId: 'plaid_old',
+      date: '2026-07-01',
+      amountCents: 100,
+    });
+    const result = apply({
+      oldestDate: '2026-09-01',
+      added: [row({ transactionId: 'plaid_ancient', date: '2026-08-15' })],
+      modified: [row({ transactionId: 'plaid_old', date: '2026-07-01', amount: 2 })],
+      existing: [existing],
+    });
+    expect(result.added).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.upserts).toHaveLength(1);
+    expect(result.modified).toBe(1);
+    expect(result.upserts[0]?.transaction.amountCents).toBe(200);
+  });
+
+  it('keeps a new transaction on the first day of the window', () => {
+    const result = apply({
+      oldestDate: '2026-09-01',
+      added: [row({ date: '2026-09-01' })],
+    });
+    expect(result.added).toBe(1);
   });
 
   it('restarts the cursor when imported rows were deleted', () => {

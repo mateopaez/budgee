@@ -285,6 +285,18 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
     await this.touchUser(uid);
   }
 
+  /** Writes many transactions in one batch, then touches the profile once. */
+  async upsertTransactions(uid: string, transactions: readonly Transaction[]): Promise<void> {
+    if (transactions.length === 0) return;
+    await this.commitInBatches(
+      transactions.map((transaction) => ({
+        path: ['users', uid, 'transactions', transaction.id] as [string, ...string[]],
+        data: transactionToDoc(transaction),
+      })),
+    );
+    await this.touchUser(uid);
+  }
+
   async removeTransaction(uid: string, transactionId: string): Promise<void> {
     const batch = writeBatch(this.db);
     batch.delete(doc(this.db, 'users', uid, 'transactions', transactionId));

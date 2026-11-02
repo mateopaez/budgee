@@ -4,8 +4,9 @@ import type { Transaction, Wallet } from '../models';
 /**
  * Ledger-derived wallet balances.
  *
- * Wallets store only an opening balance. Current balances are always computed
- * from the transaction ledger so they cannot drift from recorded movements.
+ * A wallet stores the anchor that made the ledger match the current balance
+ * the user entered. Displayed balances stay derived from the ledger, so a
+ * later transaction moves them without another manual edit.
  *
  * currentBalance = openingBalance
  *   + income entering the wallet
@@ -38,4 +39,30 @@ export function computeWalletBalances(
   }
 
   return balances;
+}
+
+/**
+ * Anchor that makes the ledger show `currentBalanceCents` for this wallet.
+ * Transactions already recorded are subtracted, so the user can type the
+ * balance their bank shows today and leave it alone after that.
+ */
+export function openingBalanceForCurrent(
+  walletId: string,
+  transactions: readonly Transaction[],
+  currentBalanceCents: Cents,
+): Cents {
+  const net =
+    computeWalletBalances([zeroAnchor(walletId)], transactions).get(walletId) ?? 0;
+  return currentBalanceCents - net;
+}
+
+function zeroAnchor(id: string): Wallet {
+  return {
+    id,
+    name: '',
+    kind: 'spending',
+    openingBalanceCents: 0,
+    color: '',
+    icon: 'wallet',
+  };
 }

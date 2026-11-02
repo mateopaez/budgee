@@ -3,6 +3,7 @@ import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { SheetShell } from '../../shared/ui/sheet-shell';
 import { TransactionRow } from '../../shared/ui/transaction-row';
+import { Icon } from '../../shared/ui/icon';
 import { BudgetStore } from '../../core/state/budget-store';
 import type { Transaction } from '../../core/models';
 
@@ -10,7 +11,7 @@ import type { Transaction } from '../../core/models';
 @Component({
   selector: 'app-review-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SheetShell, TransactionRow],
+  imports: [SheetShell, TransactionRow, Icon],
   template: `
     <app-sheet-shell title="Review transactions" (dismiss)="close()">
       @if (pending().length === 0) {
@@ -34,6 +35,18 @@ import type { Transaction } from '../../core/models';
           }
         </div>
       }
+      @if (pending().length > 0) {
+        <div sheetFooter class="flex justify-end pt-3">
+          <button
+            type="button"
+            class="inline-flex min-h-12 items-center gap-2 rounded-full bg-white px-5 text-[0.95rem] font-semibold text-ink-inverse"
+            (click)="acceptAll()"
+          >
+            <app-icon name="check" [size]="18" />
+            Accept all
+          </button>
+        </div>
+      }
     </app-sheet-shell>
   `,
 })
@@ -49,6 +62,10 @@ export class ReviewPage {
 
   protected edit(tx: Transaction): void {
     void this.router.navigate(['/transactions', tx.id, 'edit']);
+  }
+
+  protected acceptAll(): void {
+    this.store.acceptAllInReview();
   }
 
   protected close(): void {

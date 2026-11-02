@@ -135,7 +135,7 @@ export class BudgetStore {
     () => this.transactions().filter((t) => t.needsReview).length,
   );
 
-  /** Wallet balance = opening balance plus every movement recorded since. */
+  /** Displayed balance: the anchor from the current balance the user set, plus later movements. */
   readonly walletBalances = computed<ReadonlyMap<string, number>>(() =>
     computeWalletBalances(this.wallets(), this.transactions()),
   );
@@ -307,6 +307,24 @@ export class BudgetStore {
       const tx = updated;
       void this.persist(() => this.repository.upsertTransaction(this.activeUid as string, tx));
     }
+  }
+
+  /** Clears review on every imported row still waiting, without changing its category. */
+  acceptAllInReview(): void {
+    const now = new Date().toISOString();
+    const accepted: Transaction[] = [];
+    this.patch((ws) => ({
+      ...ws,
+      transactions: ws.transactions.map((transaction) => {
+        if (!transaction.needsReview) return transaction;
+        const next = { ...transaction, needsReview: false, updatedAt: now };
+        accepted.push(next);
+        return next;
+      }),
+    }));
+    if (accepted.length === 0 || !this.activeUid) return;
+    const uid = this.activeUid;
+    void this.persist(() => this.repository.upsertTransactions(uid, accepted));
   }
 
   deleteTransaction(id: string): void {

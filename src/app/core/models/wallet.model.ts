@@ -12,6 +12,11 @@ export interface Wallet {
   readonly id: string;
   readonly name: string;
   readonly kind: WalletKind;
+  /**
+   * Ledger anchor, in cents. The wallets screen asks for today's balance and
+   * stores the anchor that makes the ledger match it. Displayed balance is
+   * this anchor plus every movement recorded after that.
+   */
   readonly openingBalanceCents: Cents;
   readonly color: string;
   readonly icon: IconName;

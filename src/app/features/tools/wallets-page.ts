@@ -8,6 +8,7 @@ import { BudgetStore } from '../../core/state/budget-store';
 import { ConfirmService } from '../../shared/ui/confirm.service';
 import { createId } from '../../core/util/id.util';
 import { centsToInputString, parseMoneyToCents } from '../../core/util/currency.util';
+import { openingBalanceForCurrent } from '../../core/util/wallet-balance.util';
 import type { Wallet, WalletKind } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
 
@@ -21,7 +22,7 @@ const WALLET_COLORS = [
   'var(--color-cat-transport)',
 ];
 
-/** Wallet management, including the opening balance each wallet starts from. */
+/** Wallet management. Each wallet stores the balance the account shows today. */
 @Component({
   selector: 'app-wallets-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -59,7 +60,7 @@ const WALLET_COLORS = [
           {{ money.summary(totalCents()) }}
         </p>
         <p class="mt-2 text-[0.85rem] text-ink-muted">
-          Opening balances plus every transaction you have recorded.
+          What your wallets hold right now.
         </p>
       </section>
 
@@ -104,16 +105,19 @@ const WALLET_COLORS = [
 
         <label class="mt-3 block rounded-[1.25rem] bg-raised px-4 py-3">
           <span class="block text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
-            Opening balance
+            Current balance
           </span>
           <input
             type="text"
             inputmode="decimal"
             class="mt-1 min-h-[2.5rem] w-full bg-transparent text-[1.1rem] text-ink outline-none"
-            [value]="openingInput()"
-            (change)="setOpening($any($event.target).value)"
+            [value]="currentBalanceInput()"
+            (change)="setCurrentBalance($any($event.target).value)"
           />
         </label>
+        <p class="mt-2 text-[0.82rem] leading-relaxed text-ink-muted">
+          Match what this account shows today. Later transactions update it from here.
+        </p>
 
         <fieldset class="mt-5">
           <legend class="text-[0.7rem] font-semibold tracking-[0.14em] text-ink-muted uppercase">
@@ -215,15 +219,16 @@ export class WalletsPage {
   protected readonly wallets = this.store.wallets;
   protected readonly editing = signal<Wallet | null>(null);
   protected readonly isNew = signal(false);
+  /** Balance the user is typing. Saved as the ledger anchor that matches it today. */
+  private readonly currentBalanceCents = signal(0);
 
   protected readonly totalCents = computed(() =>
     [...this.store.walletBalances().values()].reduce((sum, value) => sum + value, 0),
   );
 
-  protected readonly openingInput = computed(() => {
-    const draft = this.editing();
-    return draft ? centsToInputString(draft.openingBalanceCents) : '0.00';
-  });
+  protected readonly currentBalanceInput = computed(() =>
+    centsToInputString(this.currentBalanceCents()),
+  );
 
   protected balanceOf(id: string): number {
     return this.store.walletBalances().get(id) ?? 0;
@@ -244,6 +249,7 @@ export class WalletsPage {
 
   protected startCreate(): void {
     this.isNew.set(true);
+    this.currentBalanceCents.set(0);
     this.editing.set({
       id: createId('wal'),
       name: '',
@@ -256,6 +262,7 @@ export class WalletsPage {
 
   protected startEdit(wallet: Wallet): void {
     this.isNew.set(false);
+    this.currentBalanceCents.set(this.balanceOf(wallet.id));
     this.editing.set(wallet);
   }
 
@@ -263,8 +270,8 @@ export class WalletsPage {
     this.editing.update((current) => (current ? { ...current, ...patch } : current));
   }
 
-  protected setOpening(raw: string): void {
-    this.patch({ openingBalanceCents: parseMoneyToCents(raw) ?? 0 });
+  protected setCurrentBalance(raw: string): void {
+    this.currentBalanceCents.set(parseMoneyToCents(raw) ?? 0);
   }
 
   protected save(): void {
@@ -272,7 +279,12 @@ export class WalletsPage {
     if (!draft) return;
     const name = draft.name.trim();
     if (!name) return;
-    this.store.upsertWallet({ ...draft, name });
+    const openingBalanceCents = openingBalanceForCurrent(
+      draft.id,
+      this.store.transactions(),
+      this.currentBalanceCents(),
+    );
+    this.store.upsertWallet({ ...draft, name, openingBalanceCents });
     this.editing.set(null);
   }
 

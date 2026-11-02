@@ -1,10 +1,13 @@
 import type { DocumentReference, Firestore, QueryDocumentSnapshot, WriteBatch } from 'firebase-admin/firestore';
 import type { AccountBase, RemovedTransaction, Transaction as PlaidTransaction } from 'plaid';
 import { createId } from '../../src/app/core/util/id.util';
+import { toIsoDate } from '../../src/app/core/util/date.util';
 import {
   applyPlaidSync,
   mapPlaidAccountKind,
   syncCursor,
+  TRANSACTION_HISTORY_DAYS,
+  transactionHistoryStart,
   type PlaidTransactionInput,
 } from '../../src/app/core/plaid/map-plaid-transaction';
 import {
@@ -46,6 +49,7 @@ export async function createLinkToken(req: PlaidRequest): Promise<{ body: { link
     country_codes: linkCountries(),
     language: 'en',
     webhook: plaidWebhookUrl(),
+    transactions: { days_requested: TRANSACTION_HISTORY_DAYS },
   });
   return { body: { linkToken: created.data.link_token } };
 }
@@ -173,14 +177,16 @@ export async function syncStoredItem(
       (tx) => tx.linkedAccountId != null && linkedIds.has(tx.linkedAccountId),
     ).length;
     const pages = await fetchTransactions(item.accessToken, syncCursor(item.cursor, localImports), options);
+    const now = new Date();
     const plan = applyPlaidSync({
       added: pages.added.map(toInput),
       modified: pages.modified.map(toInput),
       removedIds: pages.removed.map((row) => row.transaction_id),
       existing,
       accountsByPlaidId,
-      now: new Date().toISOString(),
+      now: now.toISOString(),
       createId: () => createId('tx'),
+      oldestDate: transactionHistoryStart(toIsoDate(now)),
     });
 
     const ops: Array<(batch: WriteBatch) => void> = [];
