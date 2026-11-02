@@ -327,6 +327,45 @@ export class BudgetStore {
     void this.persist(() => this.repository.upsertTransactions(uid, accepted));
   }
 
+  /**
+   * Gives several transactions one category and clears their review flag.
+   * Returns them as they were before, so the change can be undone.
+   */
+  setCategoryFor(ids: readonly string[], categoryId: string): Transaction[] {
+    const now = new Date().toISOString();
+    const targets = new Set(ids);
+    const previous: Transaction[] = [];
+    const updated: Transaction[] = [];
+    this.patch((ws) => ({
+      ...ws,
+      transactions: ws.transactions.map((transaction) => {
+        if (!targets.has(transaction.id)) return transaction;
+        const next = { ...transaction, categoryId, needsReview: false, updatedAt: now };
+        previous.push(transaction);
+        updated.push(next);
+        return next;
+      }),
+    }));
+    if (updated.length > 0 && this.activeUid) {
+      const uid = this.activeUid;
+      void this.persist(() => this.repository.upsertTransactions(uid, updated));
+    }
+    return previous;
+  }
+
+  /** Puts transactions back to saved copies, such as the ones setCategoryFor returned. */
+  revertTransactions(saved: readonly Transaction[]): void {
+    const byId = new Map(saved.map((transaction) => [transaction.id, transaction]));
+    this.patch((ws) => ({
+      ...ws,
+      transactions: ws.transactions.map((transaction) => byId.get(transaction.id) ?? transaction),
+    }));
+    if (saved.length > 0 && this.activeUid) {
+      const uid = this.activeUid;
+      void this.persist(() => this.repository.upsertTransactions(uid, saved));
+    }
+  }
+
   deleteTransaction(id: string): void {
     this.patch((ws) => ({ ...ws, transactions: ws.transactions.filter((t) => t.id !== id) }));
     if (this.activeUid) {

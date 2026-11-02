@@ -34,6 +34,7 @@ import { addDays, relativeDayLabel, shortDateLabel } from '../../core/util/date.
 import { createId } from '../../core/util/id.util';
 import { CATEGORY_IDS } from '../../core/data/taxonomy';
 import { splitsSumCents } from '../../core/util/transaction-split.util';
+import { findSimilarUncategorized } from '../../core/util/similar-transactions.util';
 import type {
   RecurrenceRule,
   Transaction,
@@ -1072,10 +1073,44 @@ export class TransactionEditorPage {
     }
 
     const id = this.transactionId();
-    if (id) this.store.updateTransaction(id, draft);
-    else this.store.addTransaction(draft);
-    this.toasts.show('Saved');
+    let saved: Transaction | undefined;
+    if (id) {
+      this.store.updateTransaction(id, draft);
+      saved = this.store.transactionById(id);
+    } else {
+      saved = this.store.addTransaction(draft);
+    }
+    if (!saved || !this.offerSimilar(saved)) this.toasts.show('Saved');
     this.close();
+  }
+
+  /**
+   * Offers to give the same category to other transactions from this merchant
+   * that still need one. Returns false when there are none to offer.
+   */
+  private offerSimilar(saved: Transaction): boolean {
+    const similar = findSimilarUncategorized(saved, this.store.transactions());
+    if (similar.length === 0) return false;
+    const category = this.store.categoriesById().get(saved.categoryId)?.name ?? 'this category';
+    const others = similar.length === 1 ? '1 other' : `${similar.length} other`;
+    this.toasts.show(`Saved. Set ${others} “${saved.merchant}” to ${category} too?`, {
+      action: {
+        label: 'Apply',
+        run: () => {
+          const previous = this.store.setCategoryFor(
+            similar.map((tx) => tx.id),
+            saved.categoryId,
+          );
+          const count = previous.length === 1 ? '1 transaction' : `${previous.length} transactions`;
+          this.toasts.show(`Updated ${count}.`, {
+            action: { label: 'Undo', run: () => this.store.revertTransactions(previous) },
+            durationMs: 5000,
+          });
+        },
+      },
+      durationMs: 8000,
+    });
+    return true;
   }
 
   protected async remove(): Promise<void> {
