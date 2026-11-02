@@ -204,6 +204,14 @@ export class ToolsPage {
       link: '/categories',
     },
     {
+      id: 'import',
+      title: 'Import Statement',
+      body: 'Add transactions from a CSV file',
+      icon: 'clipboard',
+      color: 'var(--color-cat-income)',
+      link: '/import',
+    },
+    {
       id: 'reminders',
       title: 'Reminders',
       body: 'Get notified when a bill is due',

@@ -304,6 +304,17 @@ export class FirestoreWorkspaceRepository implements WorkspaceRepository {
     await batch.commit();
   }
 
+  async removeTransactions(uid: string, transactionIds: readonly string[]): Promise<void> {
+    if (transactionIds.length === 0) return;
+    await this.commitInBatches(
+      transactionIds.map((id) => ({
+        path: ['users', uid, 'transactions', id] as [string, ...string[]],
+        data: null,
+      })),
+    );
+    await this.touchUser(uid);
+  }
+
   async getTransaction(uid: string, transactionId: string): Promise<Transaction | null> {
     const snap = await getDoc(doc(this.db, 'users', uid, 'transactions', transactionId));
     if (!snap.exists()) return null;

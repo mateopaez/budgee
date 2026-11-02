@@ -97,6 +97,12 @@ export const routes: Routes = [
         loadComponent: () => import('./features/tools/wallets-page').then((m) => m.WalletsPage),
       },
       {
+        path: 'import',
+        title: 'Import statement',
+        loadComponent: () =>
+          import('./features/tools/statement-import-page').then((m) => m.StatementImportPage),
+      },
+      {
         path: 'bank-connections',
         title: 'Bank connections',
         loadComponent: () =>

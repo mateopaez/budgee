@@ -42,6 +42,11 @@ export function isETransfer(merchant: string): boolean {
   return /\b(interac|e-?transfer|etransfer)\b/i.test(merchant);
 }
 
+/** True when two merchant names look like the same store, ignoring branch details. */
+export function sameMerchant(a: string, b: string): boolean {
+  return keysMatch(merchantKey(a), merchantKey(b));
+}
+
 /** True when one key is the other, or starts with it as whole words. */
 function keysMatch(a: string, b: string): boolean {
   if (a === b) return a.length > 0;

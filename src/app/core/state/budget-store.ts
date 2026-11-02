@@ -14,7 +14,7 @@ import {
   type WorkspaceIdentity,
 } from '../data/workspace';
 import { DEMO_TODAY } from '../data/demo-seed';
-import { DEFAULT_CATEGORIES, withMissingSystemCategories } from '../data/taxonomy';
+import { CATEGORY_IDS, DEFAULT_CATEGORIES, withMissingSystemCategories } from '../data/taxonomy';
 import { createId } from '../util/id.util';
 import { toIsoDate, type IsoDate } from '../util/date.util';
 import { periodContaining, shiftPeriod } from '../util/budget-period.util';
@@ -23,6 +23,7 @@ import { detectRecurringPayments } from '../util/recurring.util';
 import { computeWalletBalances } from '../util/wallet-balance.util';
 import { hasSplits } from '../util/transaction-split.util';
 import { walletIdsForImport } from '../plaid/map-plaid-transaction';
+import type { StatementRow } from '../util/statement-import.util';
 
 export type StoreStatus = 'idle' | 'loading' | 'ready' | 'error' | 'seeding';
 
@@ -493,6 +494,71 @@ export class BudgetStore {
         await this.repository.upsertBudget(uid, budget);
       }
     });
+  }
+
+  /**
+   * Adds statement rows to a wallet as transactions waiting for review, with
+   * the Unknown category. With `keepBalance`, the wallet's anchor moves so the
+   * balance it shows today stays the same, because a statement covers money
+   * that already left. Returns what is needed to undo the import.
+   */
+  importStatementRows(
+    rows: readonly StatementRow[],
+    walletId: string,
+    keepBalance: boolean,
+  ): { readonly transactionIds: readonly string[]; readonly previousWallet: Wallet | null } {
+    const now = new Date().toISOString();
+    const transactions: Transaction[] = rows.map((row) => {
+      const type = row.direction === 'charge' ? 'expense' : 'income';
+      return {
+        id: createId('tx'),
+        type,
+        amountCents: row.amountCents,
+        currency: 'CAD',
+        date: row.date,
+        categoryId: CATEGORY_IDS.unknown,
+        merchant: row.description,
+        ...walletIdsForImport(type, walletId),
+        excludedFromBudget: false,
+        recurrence: 'none',
+        needsReview: true,
+        linkedAccountId: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    this.patch((ws) => ({ ...ws, transactions: [...transactions, ...ws.transactions] }));
+    if (this.activeUid) {
+      const uid = this.activeUid;
+      void this.persist(() => this.repository.upsertTransactions(uid, transactions));
+    }
+
+    const wallet = this.wallets().find((w) => w.id === walletId) ?? null;
+    if (keepBalance && wallet) {
+      const net = transactions.reduce(
+        (sum, tx) => sum + (tx.type === 'income' ? tx.amountCents : -tx.amountCents),
+        0,
+      );
+      this.upsertWallet({ ...wallet, openingBalanceCents: wallet.openingBalanceCents - net });
+    }
+    return {
+      transactionIds: transactions.map((tx) => tx.id),
+      previousWallet: keepBalance ? wallet : null,
+    };
+  }
+
+  /** Reverses importStatementRows. */
+  undoStatementImport(result: {
+    readonly transactionIds: readonly string[];
+    readonly previousWallet: Wallet | null;
+  }): void {
+    const ids = new Set(result.transactionIds);
+    this.patch((ws) => ({ ...ws, transactions: ws.transactions.filter((t) => !ids.has(t.id)) }));
+    if (this.activeUid) {
+      const uid = this.activeUid;
+      void this.persist(() => this.repository.removeTransactions(uid, result.transactionIds));
+    }
+    if (result.previousWallet) this.upsertWallet(result.previousWallet);
   }
 
   upsertWallet(wallet: Wallet): void {
