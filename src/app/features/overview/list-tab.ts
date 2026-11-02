@@ -124,18 +124,13 @@ import type { Transaction } from '../../core/models';
           <p class="mt-0.5 text-[0.66rem] tracking-[0.14em] text-ink-muted uppercase">Expenses</p>
         </div>
         <div>
-          @if (balanceCents() < 0) {
-            <p class="text-[0.85rem] leading-tight font-semibold [overflow-wrap:anywhere] text-ink">
-              Spent {{ money.headline(-balanceCents()) }} more than earned
-            </p>
-          } @else {
-            <p
-              class="text-[1.05rem] font-semibold [overflow-wrap:anywhere] text-ink"
-              [attr.title]="money.summary(balanceCents())"
-            >
-              {{ money.headline(balanceCents()) }}
-            </p>
-          }
+          <p
+            class="text-[1.05rem] font-semibold [overflow-wrap:anywhere]"
+            [style.color]="balanceCents() < 0 ? 'var(--color-negative)' : 'var(--color-ink)'"
+            [attr.title]="money.summary(balanceCents())"
+          >
+            {{ money.headline(balanceCents()) }}
+          </p>
           <p class="mt-0.5 text-[0.66rem] tracking-[0.14em] text-ink-muted uppercase">Balance</p>
         </div>
       </div>

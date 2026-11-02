@@ -195,7 +195,7 @@ export class SpendingTab {
       { label: 'Income', valueCents: income, color: 'var(--color-positive)', heightPercent: scale(income) },
       { label: 'Expenses', valueCents: expenses, color: 'var(--color-cat-entertainment)', heightPercent: scale(expenses) },
       {
-        label: 'Income minus spending so far',
+        label: 'Balance',
         valueCents: left,
         color: left < 0 ? 'var(--color-negative)' : 'var(--color-accent)',
         heightPercent: scale(left),
