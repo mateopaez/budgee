@@ -6,7 +6,7 @@ import { RecurringMark } from './recurring-mark';
 import { yearlyBillsTotal } from '../../core/util/recurring.util';
 
 /**
- * Save tab. Recurring spending is surfaced for review; Budgee never claims a
+ * Bills tab (routed at /save). Recurring spending is surfaced for review; Budgee never claims a
  * payment is unnecessary or that it can be cancelled.
  */
 @Component({
@@ -30,7 +30,7 @@ import { yearlyBillsTotal } from '../../core/util/recurring.util';
         style="background: radial-gradient(circle at 35% 30%, #fff3c4, #f0c65a)"
       ></div>
       <h1 class="relative max-w-[11ch] text-[2.1rem] leading-tight font-bold text-[#1b1b1b]">
-        Start saving money now
+        Your recurring bills
       </h1>
     </header>
 
@@ -57,7 +57,7 @@ import { yearlyBillsTotal } from '../../core/util/recurring.util';
                   </span>
                   <span class="block text-[0.9rem] text-ink-muted">
                     <span class="font-semibold text-ink">
-                      {{ money.fmt(item.amountCents, { decimals: true }) }}
+                      {{ money.fmt(item.amountCents) }}
                     </span>
                     {{ item.cadence }}
                   </span>

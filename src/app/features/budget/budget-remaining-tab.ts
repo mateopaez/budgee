@@ -5,11 +5,24 @@ import { PeriodSelector } from '../../shared/ui/period-selector';
 import { RemainingArc, type RemainingArcSegment } from '../../shared/charts/remaining-arc';
 import { ProgressRing } from '../../shared/charts/progress-ring';
 import { CategoryMark } from '../../shared/ui/category-mark';
+import { leftToSpendLabel } from '../../core/util/budget-period.util';
 import type { IconName } from '../../shared/ui/icon-set';
 
 const MAX_RENDERED_SEGMENTS = 5;
 
 /** Remaining tab: how much of each plan is still available in this period. */
+interface AmountStatus {
+  readonly plannedCents: number;
+  readonly spentCents: number;
+  readonly remainingCents: number;
+  readonly state: 'under' | 'exact' | 'over';
+}
+
+/** True when nothing is planned and nothing has been spent yet. */
+function isUnbudgeted(status: AmountStatus): boolean {
+  return status.plannedCents === 0 && status.spentCents === 0;
+}
+
 @Component({
   selector: 'app-budget-remaining-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -23,7 +36,7 @@ const MAX_RENDERED_SEGMENTS = 5;
           [remainingCents]="Math.max(0, s.leftToSpendCents)"
           [size]="320"
           [thickness]="18"
-          ariaLabel="Budget used versus left to spend"
+          [ariaLabel]="'Budget used versus ' + leftLabel().toLowerCase()"
         >
           @if (focus(); as f) {
             <app-category-mark [icon]="f.icon" [color]="f.color" [size]="52" [solid]="true" />
@@ -48,9 +61,9 @@ const MAX_RENDERED_SEGMENTS = 5;
             <h2 class="text-[1.2rem] font-semibold text-ink">{{ group.name }}</h2>
             <p
               class="text-[1rem] font-semibold"
-              [style.color]="stateColor(group.state)"
+              [style.color]="stateColor(group)"
             >
-              {{ money.summary(Math.abs(group.remainingCents)) }} {{ stateWord(group.state) }}
+              {{ amountLabel(group) }}
             </p>
           </div>
 
@@ -69,9 +82,9 @@ const MAX_RENDERED_SEGMENTS = 5;
                 </span>
                 <span
                   class="mt-0.5 text-[0.9rem] font-semibold"
-                  [style.color]="stateColor(item.state)"
+                  [style.color]="stateColor(item)"
                 >
-                  {{ money.summary(Math.abs(item.remainingCents)) }} {{ stateWord(item.state) }}
+                  {{ amountLabel(item) }}
                 </span>
               </li>
             }
@@ -82,7 +95,7 @@ const MAX_RENDERED_SEGMENTS = 5;
       @if (s.otherExpensesCents > 0) {
         <section class="rounded-[1.5rem] bg-raised p-5">
           <div class="flex items-baseline justify-between gap-3">
-            <h2 class="text-[1.2rem] font-semibold text-ink">Other expenses</h2>
+            <h2 class="text-[1.2rem] font-semibold text-ink">Unplanned</h2>
             <p class="text-[1rem] font-semibold text-ink">
               {{ money.summary(s.otherExpensesCents) }}
             </p>
@@ -104,6 +117,9 @@ export class BudgetRemainingTab {
   protected readonly Math = Math;
 
   protected readonly summary = this.store.summary;
+  protected readonly leftLabel = computed(() =>
+    leftToSpendLabel(this.store.activeBudget()?.periodType),
+  );
 
   protected readonly segments = computed<RemainingArcSegment[]>(() => {
     const s = this.summary();
@@ -119,7 +135,7 @@ export class BudgetRemainingTab {
     if (s.otherExpensesCents > 0) {
       list.push({
         id: 'other',
-        label: 'Other expenses',
+        label: 'Unplanned',
         value: s.otherExpensesCents,
         amountLabel: this.money.summary(s.otherExpensesCents),
       });
@@ -134,7 +150,7 @@ export class BudgetRemainingTab {
       ...head,
       {
         id: '__other__',
-        label: 'Other',
+        label: 'Other groups',
         value: otherValue,
         amountLabel: this.money.summary(otherValue),
       },
@@ -170,6 +186,8 @@ export class BudgetRemainingTab {
           icon: (category?.icon ?? 'box') as IconName,
           color: category?.color ?? 'var(--color-cat-misc)',
           progress: c.progress,
+          plannedCents: c.plannedCents,
+          spentCents: c.spentCents,
           remainingCents: c.remainingCents,
           state: c.state,
         };
@@ -177,13 +195,19 @@ export class BudgetRemainingTab {
     }));
   });
 
-  protected stateWord(state: 'under' | 'exact' | 'over'): string {
-    if (state === 'over') return 'over';
-    if (state === 'exact') return 'on budget';
-    return 'left';
+  /** "$120 left", "$40 over", "$1,750 spent of $1,750" when exactly on plan, or "No budget set". */
+  protected amountLabel(status: AmountStatus): string {
+    if (isUnbudgeted(status)) return 'No budget set';
+    if (status.state === 'exact') {
+      return `${this.money.summary(status.spentCents)} spent of ${this.money.summary(status.plannedCents)}`;
+    }
+    const word = status.state === 'over' ? 'over' : 'left';
+    return `${this.money.summary(Math.abs(status.remainingCents))} ${word}`;
   }
 
-  protected stateColor(state: 'under' | 'exact' | 'over'): string {
+  protected stateColor(status: AmountStatus): string {
+    if (isUnbudgeted(status)) return 'var(--color-ink-muted)';
+    const { state } = status;
     if (state === 'over') return 'var(--color-negative)';
     if (state === 'exact') return 'var(--color-accent)';
     return 'var(--color-ink)';

@@ -7,6 +7,7 @@ import { CategoryMark } from '../../shared/ui/category-mark';
 import { Icon } from '../../shared/ui/icon';
 import { totalsByCategory, totalsByGroup } from '../../core/util/grouping.util';
 import { budgetExpenseCents } from '../../core/util/transaction-split.util';
+import { isFutureExpense } from '../../core/util/budget-calc.util';
 import type { IconName } from '../../shared/ui/icon-set';
 
 type Lens = 'expense' | 'income';
@@ -108,7 +109,7 @@ interface SpendRow {
             [class.text-ink-muted]="grain() !== 'groups'"
             (click)="grain.set('groups')"
           >
-            Head categories
+            Main categories
           </button>
           <button
             type="button"
@@ -166,6 +167,11 @@ export class SpendingTab {
     return all.filter((t) => t.date >= period.start && t.date < period.end);
   });
 
+  /** Period transactions that count towards totals: expenses dated after today wait. */
+  private readonly countedTx = computed(() =>
+    this.periodTx().filter((t) => !isFutureExpense(t, this.store.today())),
+  );
+
   private readonly incomeCents = computed(() =>
     this.periodTx()
       .filter((t) => t.type === 'income' && !t.excludedFromBudget)
@@ -175,6 +181,7 @@ export class SpendingTab {
   private readonly expenseCents = computed(() =>
     this.periodTx()
       .filter((t) => t.type === 'expense' && !t.excludedFromBudget)
+      .filter((t) => !isFutureExpense(t, this.store.today()))
       .reduce((sum, t) => sum + budgetExpenseCents(t), 0),
   );
 
@@ -188,7 +195,7 @@ export class SpendingTab {
       { label: 'Income', valueCents: income, color: 'var(--color-positive)', heightPercent: scale(income) },
       { label: 'Expenses', valueCents: expenses, color: 'var(--color-cat-entertainment)', heightPercent: scale(expenses) },
       {
-        label: 'Left',
+        label: 'Income minus spending so far',
         valueCents: left,
         color: left < 0 ? 'var(--color-negative)' : 'var(--color-accent)',
         heightPercent: scale(left),
@@ -202,7 +209,7 @@ export class SpendingTab {
     const type = this.lens();
     const all: SpendRow[] =
       this.grain() === 'groups'
-        ? totalsByGroup(this.periodTx(), type, (id) => categories.get(id)?.groupId).map((entry) => {
+        ? totalsByGroup(this.countedTx(), type, (id) => categories.get(id)?.groupId).map((entry) => {
             const group = groups.get(entry.categoryId);
             return {
               id: entry.categoryId,
@@ -212,7 +219,7 @@ export class SpendingTab {
               totalCents: entry.totalCents,
             };
           })
-        : totalsByCategory(this.periodTx(), type).map((entry) => {
+        : totalsByCategory(this.countedTx(), type).map((entry) => {
             const category = categories.get(entry.categoryId);
             return {
               id: entry.categoryId,

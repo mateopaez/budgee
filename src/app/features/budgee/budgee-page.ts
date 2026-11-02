@@ -7,6 +7,8 @@ import { TransactionRow } from '../../shared/ui/transaction-row';
 import { Icon } from '../../shared/ui/icon';
 import { ConnectBankSheet } from './connect-bank-sheet';
 import { groupByDay } from '../../core/util/grouping.util';
+import { leftToSpendLabel } from '../../core/util/budget-period.util';
+import { MoneyFormat } from '../../shared/ui/money.service';
 import { relativeDayLabel } from '../../core/util/date.util';
 import type { Transaction } from '../../core/models';
 
@@ -32,6 +34,28 @@ import type { Transaction } from '../../core/models';
           [connected]="connection()?.status === 'connected' || connection()?.status === 'syncing'"
         />
       </div>
+
+      @if (store.summary(); as s) {
+        <a
+          routerLink="/budget"
+          class="mt-6 block rounded-[1.5rem] bg-raised p-5"
+          [attr.aria-label]="leftLabel() + ': ' + money.summary(s.leftToSpendCents) + '. Open budget'"
+        >
+          <h2 class="text-[0.72rem] font-semibold tracking-[0.16em] text-ink-muted uppercase">
+            {{ leftLabel() }}
+          </h2>
+          <p
+            class="mt-1 text-[2.4rem] leading-none font-bold [overflow-wrap:anywhere]"
+            [style.color]="s.leftToSpendCents < 0 ? 'var(--color-negative)' : 'var(--color-ink)'"
+          >
+            {{ money.headline(s.leftToSpendCents) }}
+          </p>
+          <p class="mt-2 text-[0.85rem] text-ink-muted">
+            {{ money.summary(s.plannedExpenseCents) }} planned, {{ money.summary(s.spentOnPlannedCents) }}
+            spent
+          </p>
+        </a>
+      }
 
       @if (transactions().length === 0) {
         <section class="mt-8">
@@ -118,11 +142,13 @@ import type { Transaction } from '../../core/models';
               routerLink="/transactions/review"
               class="mt-4 flex min-h-[3rem] items-center gap-3 rounded-full border border-line bg-surface px-4"
             >
-              <span class="flex-1 truncate text-[0.9rem] text-ink-muted">
-                You have {{ reviewCount() }}
-                {{ reviewCount() === 1 ? 'transaction' : 'transactions' }} in need of a category
+              <span class="flex-1 py-2 text-[0.9rem] leading-snug text-ink-muted">
+                {{ reviewCount() }}
+                {{ reviewCount() === 1 ? 'transaction needs' : 'transactions need' }} a category
               </span>
-              <span class="rounded-full bg-raised px-4 py-1.5 text-[0.85rem] font-semibold text-ink">
+              <span
+                class="shrink-0 rounded-full bg-raised px-4 py-1.5 text-[0.85rem] font-semibold text-ink"
+              >
                 Review
               </span>
             </a>
@@ -158,11 +184,15 @@ import type { Transaction } from '../../core/models';
   `,
 })
 export class BudgeePage {
-  private readonly store = inject(BudgetStore);
+  protected readonly store = inject(BudgetStore);
+  protected readonly money = inject(MoneyFormat);
   private readonly router = inject(Router);
   protected readonly session = inject(SessionService);
 
   protected readonly sheetOpen = signal(false);
+  protected readonly leftLabel = computed(() =>
+    leftToSpendLabel(this.store.activeBudget()?.periodType),
+  );
 
   protected readonly transactions = this.store.transactions;
   protected readonly reviewCount = this.store.needsReviewCount;

@@ -170,7 +170,6 @@ export class RemainingArc {
 
 function shortenLabel(label: string): string {
   if (label.length <= 12) return label;
-  if (label === 'Other expenses') return 'Other';
   return `${label.slice(0, 11)}…`;
 }
 

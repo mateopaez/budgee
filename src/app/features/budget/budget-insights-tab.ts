@@ -80,8 +80,8 @@ import { Icon } from '../../shared/ui/icon';
           @case ('projection') {
             <section class="rounded-[1.5rem] bg-raised p-5">
               <h2 class="text-[1.2rem] font-semibold text-ink">Projection</h2>
-              <p class="mt-1 text-[0.95rem] text-ink-muted">
-                An estimated result for this budget period.
+              <p class="mt-1 text-[0.95rem] leading-relaxed text-ink-muted">
+                {{ projectionSentence() }}
               </p>
               <div class="mt-4 rounded-[1.25rem] bg-sunken p-4">
                 <button
@@ -97,10 +97,7 @@ import { Icon } from '../../shared/ui/icon';
                   >
                     <app-icon name="clipboard" [size]="22" />
                   </span>
-                  <span
-                    class="flex-1 text-left text-[1.8rem] leading-none font-bold"
-                    [style.color]="s.projection.projectedResult < 0 ? 'var(--color-negative)' : 'var(--color-ink)'"
-                  >
+                  <span class="flex-1 text-left text-[1.8rem] leading-none font-bold text-ink">
                     {{ money.summary(s.projection.projectedResult) }}
                   </span>
                   <app-icon [name]="expanded() ? 'chevronUp' : 'chevronDown'" [size]="20" />
@@ -123,8 +120,8 @@ import { Icon } from '../../shared/ui/icon';
                   </ul>
                   <p class="mt-4 text-[0.8rem] leading-relaxed text-ink-faint">
                     Each bucket is carried at whichever is larger, what you have already spent or
-                    what you planned. Unplanned other expenses have no plan to fall back on, so they
-                    carry at their actual value.
+                    what you planned. Unplanned spending has no plan to fall back on, so it carries
+                    at its actual value.
                   </p>
                 }
               </div>
@@ -156,10 +153,21 @@ export class BudgetInsightsTab {
     return [
       { label: 'Income', actual: b.incomeActual, planned: b.incomePlanned, color: 'var(--color-positive)' },
       { label: 'Savings', actual: b.savingsActual, planned: b.savingsPlanned, color: 'var(--color-cat-savings)' },
-      { label: 'Fixed expenses', actual: b.fixedActual, planned: b.fixedPlanned, color: 'var(--color-cat-housing)' },
-      { label: 'Variable expenses', actual: b.variableActual, planned: b.variablePlanned, color: 'var(--color-cat-food)' },
-      { label: 'Other expenses', actual: b.otherActual, planned: null, color: 'var(--color-cat-misc)' },
+      { label: 'Regular bills', actual: b.fixedActual, planned: b.fixedPlanned, color: 'var(--color-cat-housing)' },
+      { label: 'Day-to-day spending', actual: b.variableActual, planned: b.variablePlanned, color: 'var(--color-cat-food)' },
+      { label: 'Unplanned', actual: b.otherActual, planned: null, color: 'var(--color-cat-misc)' },
     ];
+  });
+
+  /** Plain explanation shown above the projected figure. */
+  protected readonly projectionSentence = computed(() => {
+    const result = this.summary()?.projection.projectedResult ?? 0;
+    const period = this.store.activeBudget()?.periodType === 'monthly' ? 'month' : 'period';
+    const amount = this.money.summary(Math.abs(result));
+    const start = 'If spending continues as planned, you may end the';
+    if (result < 0) return `${start} ${period} about ${amount} short.`;
+    if (result > 0) return `${start} ${period} with about ${amount} left over.`;
+    return `${start} ${period} with nothing left over.`;
   });
 
   protected readonly projectionRows = computed(() => {
@@ -168,9 +176,9 @@ export class BudgetInsightsTab {
     return [
       { label: 'Income', text: this.money.summary(p.projectedIncome, { signed: true }), emphasis: false },
       { label: 'Savings', text: this.money.summary(-p.projectedSavings), emphasis: false },
-      { label: 'Fixed budget expenses', text: this.money.summary(-p.projectedFixed), emphasis: false },
-      { label: 'Variable costs', text: this.money.summary(-p.projectedVariable), emphasis: false },
-      { label: 'Other expenses', text: this.money.summary(-p.projectedOther), emphasis: false },
+      { label: 'Regular bills', text: this.money.summary(-p.projectedFixed), emphasis: false },
+      { label: 'Day-to-day spending', text: this.money.summary(-p.projectedVariable), emphasis: false },
+      { label: 'Unplanned', text: this.money.summary(-p.projectedOther), emphasis: false },
       { label: 'Projected result', text: this.money.summary(p.projectedResult), emphasis: true },
     ];
   });

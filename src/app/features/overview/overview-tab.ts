@@ -10,6 +10,8 @@ import { TransactionRow } from '../../shared/ui/transaction-row';
 import { CategoryMark } from '../../shared/ui/category-mark';
 import { cumulativeSpend } from '../../core/util/grouping.util';
 import { budgetExpenseCents } from '../../core/util/transaction-split.util';
+import { isFutureExpense } from '../../core/util/budget-calc.util';
+import { leftToSpendLabel } from '../../core/util/budget-period.util';
 import { addDays, addMonths, diffDays, dueInLabel, startOfMonth } from '../../core/util/date.util';
 import type { ProviderConnection, Transaction } from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
@@ -34,8 +36,11 @@ import type { IconName } from '../../shared/ui/icon-set';
       <h2 class="text-[0.72rem] font-semibold tracking-[0.16em] text-ink-muted uppercase">
         Spent this {{ periodWord() }}
       </h2>
-      <p class="mt-1 text-[2.4rem] leading-none font-bold text-ink">
-        {{ money.summary(spentCents()) }}
+      <p
+        class="mt-1 text-[2.4rem] leading-none font-bold [overflow-wrap:anywhere] text-ink"
+        [attr.title]="money.summary(spentCents())"
+      >
+        {{ money.headline(spentCents()) }}
       </p>
       <div class="mt-5">
         <app-line-chart
@@ -138,7 +143,7 @@ import type { IconName } from '../../shared/ui/icon-set';
       <section class="rounded-[1.5rem] bg-raised p-5">
         <h2 class="text-[1.15rem] font-semibold text-ink">Budget</h2>
         <p class="mt-4 text-[0.72rem] font-semibold tracking-[0.16em] text-ink-muted uppercase">
-          Left to spend
+          {{ leftLabel() }}
         </p>
         <p
           class="mt-1 text-[2.4rem] leading-none font-bold"
@@ -240,7 +245,7 @@ import type { IconName } from '../../shared/ui/icon-set';
                 <span class="block text-[0.82rem] text-ink-muted">{{ item.due }}</span>
               </span>
               <span class="text-[0.98rem] font-semibold text-ink">
-                {{ money.fmt(item.amountCents, { decimals: true }) }}
+                {{ money.fmt(item.amountCents) }}
               </span>
             </li>
           }
@@ -267,6 +272,9 @@ export class OverviewTab {
   protected readonly wallets = this.store.wallets;
   protected readonly accounts = this.store.linkedAccounts;
 
+  protected readonly leftLabel = computed(() =>
+    leftToSpendLabel(this.store.activeBudget()?.periodType),
+  );
   protected readonly periodLabel = computed(() => this.store.activePeriod()?.label ?? 'this month');
   protected readonly periodWord = computed(() => {
     const type = this.store.activeBudget()?.periodType ?? 'monthly';
@@ -287,6 +295,7 @@ export class OverviewTab {
     return this.store
       .transactions()
       .filter((t) => t.type === 'expense' && !t.excludedFromBudget && t.date >= start && t.date < end)
+      .filter((t) => !isFutureExpense(t, this.store.today()))
       .reduce((sum, t) => sum + budgetExpenseCents(t), 0);
   });
 

@@ -53,7 +53,7 @@ import { dueInLabel } from '../../core/util/date.util';
                 </span>
                 <span class="block text-[0.9rem] text-ink-muted">
                   <span class="font-semibold text-ink">
-                    {{ money.fmt(bill.amountCents, { decimals: true }) }}
+                    {{ money.fmt(bill.amountCents) }}
                   </span>
                   {{ bill.cadence }}
                 </span>
