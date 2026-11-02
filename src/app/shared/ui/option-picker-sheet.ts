@@ -45,7 +45,7 @@ export interface PickerOption {
         <button
           type="button"
           class="mb-2 flex min-h-[3.5rem] w-full items-center gap-3 rounded-[1rem] px-2 text-left"
-          (click)="action.emit()"
+          (click)="action.emit(query().trim())"
         >
           <span
             class="flex size-10 items-center justify-center rounded-full bg-raised text-ink"
@@ -113,7 +113,8 @@ export class OptionPickerSheet {
   /** Extra row shown above the options, such as creating a new category. */
   readonly actionLabel = input<string | null>(null);
   readonly choose = output<string>();
-  readonly action = output<void>();
+  /** Emits the current search text, so an action like "Create" can start from it. */
+  readonly action = output<string>();
   readonly cancel = output<void>();
 
   protected readonly query = signal('');

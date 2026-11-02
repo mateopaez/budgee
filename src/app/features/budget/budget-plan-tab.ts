@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  linkedSignal,
+  signal,
+} from '@angular/core';
 import { BudgetStore } from '../../core/state/budget-store';
 import { MoneyFormat } from '../../shared/ui/money.service';
 import { PeriodSelector } from '../../shared/ui/period-selector';
@@ -147,6 +154,22 @@ type PlanPicker =
               />
             </li>
           }
+          <li class="border-t border-line">
+            <button
+              type="button"
+              class="flex min-h-[3.5rem] w-full items-center gap-3 text-left"
+              [attr.aria-label]="'Add category to ' + group.name"
+              (click)="openPicker(sectionKindFor(group.id), group.id)"
+            >
+              <span
+                class="flex size-10 items-center justify-center rounded-full bg-sunken text-ink"
+                aria-hidden="true"
+              >
+                <app-icon name="plus" [size]="18" />
+              </span>
+              <span class="text-[1rem] text-ink">Add category</span>
+            </button>
+          </li>
         </ul>
       </section>
     }
@@ -290,7 +313,7 @@ type PlanPicker =
         [emptyLabel]="pickerEmptyLabel()"
         [actionLabel]="pickerActionLabel()"
         (choose)="onPickerChoose($event)"
-        (action)="onPickerAction()"
+        (action)="onPickerAction($event)"
         (cancel)="picker.set(null)"
       />
     }
@@ -341,13 +364,35 @@ export class BudgetPlanTab {
     () => this.plannedTotalCents() - this.plannedIncomeCents(),
   );
 
+  /**
+   * Group order, fixed while this tab is open so an edited group doesn't jump.
+   * Groups start largest first; new ones go at the end. The order resets when
+   * the tab is opened again or the budget changes.
+   */
+  private readonly groupOrder = linkedSignal<
+    { readonly budgetId: string | undefined; readonly ids: readonly string[] },
+    { readonly budgetId: string | undefined; readonly ids: readonly string[] }
+  >({
+    source: () => ({
+      budgetId: this.store.activeBudget()?.id,
+      ids: this.buildGroups(() => true)
+        .sort((a, b) => b.totalCents - a.totalCents)
+        .map((group) => group.id),
+    }),
+    computation: (next, previous) => {
+      if (!previous || previous.value.budgetId !== next.budgetId) return next;
+      const kept = previous.value.ids.filter((id) => next.ids.includes(id));
+      return { ...next, ids: [...kept, ...next.ids.filter((id) => !kept.includes(id))] };
+    },
+  });
+
   /** Groups holding planned outflows, used by the donut and its legend. */
   protected readonly outflowGroups = computed<PlanGroup[]>(() =>
-    this.buildGroups((p) => p.kind !== 'income'),
+    this.inGroupOrder(this.buildGroups((p) => p.kind !== 'income')),
   );
 
   /** Every group that has a plan, expense and income alike. */
-  protected readonly allGroups = computed(() => this.buildGroups(() => true));
+  protected readonly allGroups = computed(() => this.inGroupOrder(this.buildGroups(() => true)));
 
   /** Categories currently planned in the group open for editing. */
   protected readonly draftCategories = computed(() => {
@@ -445,18 +490,25 @@ export class BudgetPlanTab {
       byGroup.set(category.groupId, rows);
     }
 
-    return [...byGroup.entries()]
-      .map(([groupId, rows]) => {
-        const group = groups.get(groupId);
-        return {
-          id: groupId,
-          name: group?.name ?? 'Other',
-          color: group?.color ?? 'var(--color-cat-misc)',
-          rows,
-          totalCents: rows.reduce((sum, r) => sum + r.plannedCents, 0),
-        };
-      })
-      .sort((a, b) => b.totalCents - a.totalCents);
+    return [...byGroup.entries()].map(([groupId, rows]) => {
+      const group = groups.get(groupId);
+      return {
+        id: groupId,
+        name: group?.name ?? 'Other',
+        color: group?.color ?? 'var(--color-cat-misc)',
+        rows,
+        totalCents: rows.reduce((sum, r) => sum + r.plannedCents, 0),
+      };
+    });
+  }
+
+  private inGroupOrder(groups: PlanGroup[]): PlanGroup[] {
+    const ids = this.groupOrder().ids;
+    const rank = (id: string) => {
+      const index = ids.indexOf(id);
+      return index === -1 ? ids.length : index;
+    };
+    return groups.sort((a, b) => rank(a.id) - rank(b.id));
   }
 
   protected share(cents: number): number {
@@ -520,14 +572,14 @@ export class BudgetPlanTab {
     this.addPlan(id);
   }
 
-  protected onPickerAction(): void {
+  protected onPickerAction(query: string): void {
     const target = this.picker();
     if (!target) return;
     if (target.mode === 'group') {
-      this.startNewGroup();
+      this.startNewGroup(query);
       return;
     }
-    this.startCreateCategory();
+    this.startCreateCategory(query);
   }
 
   protected startEditGroup(groupId: string): void {
@@ -538,14 +590,14 @@ export class BudgetPlanTab {
     this.groupDraft.set(group);
   }
 
-  protected startNewGroup(): void {
+  protected startNewGroup(name = ''): void {
     const groups = this.store.groups();
     this.picker.set(null);
     this.groupError.set(null);
     this.groupIsNew.set(true);
     this.groupDraft.set({
       id: createId('grp'),
-      name: '',
+      name,
       color: CATEGORY_PALETTE[groups.length % CATEGORY_PALETTE.length],
       order: groups.reduce((max, group) => Math.max(max, group.order), 0) + 1,
     });
@@ -610,12 +662,14 @@ export class BudgetPlanTab {
     this.dismissGroup();
   }
 
-  protected startCreateCategory(): void {
+  /** Opens the new category sheet, named from the picker search when there is one. */
+  protected startCreateCategory(name = ''): void {
     const target = this.picker();
     if (!target || target.mode !== 'category' || !target.groupId) return;
     const group = this.store.groupsById().get(target.groupId);
     this.newCategory.set({
       ...blankCategory(target.groupId, this.categoryKindFor(target.groupId, target.kind)),
+      name,
       color: group?.color ?? 'var(--color-cat-misc)',
     });
   }
@@ -643,7 +697,7 @@ export class BudgetPlanTab {
   }
 
   /** Income sections are groups whose categories are not expenses. A new empty group is an expense group. */
-  private sectionKindFor(groupId: string): PlanKind {
+  protected sectionKindFor(groupId: string): PlanKind {
     const inGroup = this.store.categories().filter((category) => category.groupId === groupId && !category.archived);
     if (inGroup.length > 0 && inGroup.every((category) => category.kind !== 'expense')) return 'income';
     return 'expense';
