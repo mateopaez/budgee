@@ -14,8 +14,8 @@ import { Directive, ElementRef, inject } from '@angular/core';
   host: {
     '(focus)': 'onFocus()',
     '(mouseup)': 'onMouseUp($event)',
-    '(keydown)': 'keepSelection = false',
-    '(blur)': 'keepSelection = false',
+    '(keydown)': 'releaseSelection()',
+    '(blur)': 'releaseSelection()',
   },
 })
 export class SelectOnFocus {
@@ -30,6 +30,12 @@ export class SelectOnFocus {
         this.input.setSelectionRange(0, this.input.value.length);
       }
     });
+  }
+
+  // A method, not an inline "keepSelection = false": a listener that evaluates
+  // to false makes Angular cancel the event, which blocked every keypress.
+  protected releaseSelection(): void {
+    this.keepSelection = false;
   }
 
   protected onMouseUp(event: MouseEvent): void {

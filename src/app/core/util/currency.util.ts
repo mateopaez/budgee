@@ -72,17 +72,18 @@ export function centsToInputString(cents: Cents): string {
   return (cents / 100).toFixed(2);
 }
 
-/** Keeps digits and a single decimal point, with at most two decimal places. */
+/**
+ * Keeps digits and a single decimal point.
+ *
+ * Extra decimal places are kept, not dropped, because an existing amount loads
+ * as "12.40" and anything typed at its end would otherwise vanish. Use
+ * hasTooManyDecimals to flag them instead.
+ */
 export function sanitizeAmountInput(raw: string): string {
   let result = '';
   let seenPoint = false;
-  let decimals = 0;
   for (const char of raw) {
     if (char >= '0' && char <= '9') {
-      if (seenPoint) {
-        if (decimals === 2) continue;
-        decimals += 1;
-      }
       result += char;
     } else if (char === '.' && !seenPoint) {
       seenPoint = true;
@@ -90,4 +91,9 @@ export function sanitizeAmountInput(raw: string): string {
     }
   }
   return result;
+}
+
+export function hasTooManyDecimals(raw: string): boolean {
+  const point = raw.indexOf('.');
+  return point !== -1 && raw.length - point - 1 > 2;
 }

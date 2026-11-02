@@ -2,6 +2,7 @@ import {
   centsToInputString,
   formatMoney,
   parseMoneyToCents,
+  hasTooManyDecimals,
   sanitizeAmountInput,
 } from './currency.util';
 
@@ -42,9 +43,15 @@ describe('currency utilities', () => {
   it('keeps only digits and one decimal point while typing', () => {
     expect(sanitizeAmountInput('abc')).toBe('');
     expect(sanitizeAmountInput('-5')).toBe('5');
-    expect(sanitizeAmountInput('12.505')).toBe('12.50');
+    expect(sanitizeAmountInput('12.405')).toBe('12.405');
     expect(sanitizeAmountInput('1.2.3')).toBe('1.23');
     expect(sanitizeAmountInput('$1,234.5')).toBe('1234.5');
+  });
+
+  it('flags more than two decimal places', () => {
+    expect(hasTooManyDecimals('12.405')).toBe(true);
+    expect(hasTooManyDecimals('12.40')).toBe(false);
+    expect(hasTooManyDecimals('12')).toBe(false);
   });
 
   it('round trips through the editor input format', () => {

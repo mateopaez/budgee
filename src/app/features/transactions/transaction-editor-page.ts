@@ -28,6 +28,7 @@ import {
   centsToInputString,
   formatMoney,
   parseMoneyToCents,
+  hasTooManyDecimals,
   sanitizeAmountInput,
 } from '../../core/util/currency.util';
 import { addDays, relativeDayLabel, shortDateLabel } from '../../core/util/date.util';
@@ -61,6 +62,7 @@ const COUNTER_MARGIN = 20;
 const AMOUNT_MESSAGES = {
   missing: 'Enter an amount, like 12.50',
   invalid: 'Use numbers only, like 12.50',
+  decimals: 'Use up to two decimal places, like 12.50',
   tooLarge: `Enter an amount up to ${formatMoney(MAX_AMOUNT_CENTS, { decimals: true })}`,
 } as const;
 
@@ -957,6 +959,10 @@ export class TransactionEditorPage {
       this.amountError.set(AMOUNT_MESSAGES.invalid);
       return;
     }
+    if (hasTooManyDecimals(clean)) {
+      this.amountError.set(AMOUNT_MESSAGES.decimals);
+      return;
+    }
     const cents = parseMoneyToCents(clean);
     this.amountError.set(cents !== null && cents > MAX_AMOUNT_CENTS ? AMOUNT_MESSAGES.tooLarge : null);
   }
@@ -987,6 +993,10 @@ export class TransactionEditorPage {
 
     if (!amountCents || amountCents <= 0) {
       this.showAmountError(AMOUNT_MESSAGES.missing);
+      return;
+    }
+    if (hasTooManyDecimals(value.amount)) {
+      this.showAmountError(AMOUNT_MESSAGES.decimals);
       return;
     }
     if (amountCents > MAX_AMOUNT_CENTS) {
