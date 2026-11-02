@@ -4,6 +4,12 @@
       "maxDuration": 60
     }
   },
+  "rewrites": [
+    {
+      "source": "/((?!api/)(?!.*\\.[^/]+$).*)",
+      "destination": "/index.csr.html"
+    }
+  ],
   "headers": [
     {
       "source": "/ngsw-worker.js",
