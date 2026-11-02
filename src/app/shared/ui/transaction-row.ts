@@ -100,7 +100,11 @@ export class TransactionRow {
   protected readonly amount = computed(() => {
     const tx = this.transaction();
     const currency = tx.currency === 'CAD' ? undefined : tx.currency;
-    return this.money.signed(tx.amountCents, tx.type, currency);
+    // Rows always show cents, whatever the display preferences say.
+    return this.money.signed(tx.amountCents, tx.type, {
+      decimals: true,
+      ...(currency ? { currency } : {}),
+    });
   });
 
   protected readonly amountColor = computed(() => {

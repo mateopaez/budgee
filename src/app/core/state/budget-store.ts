@@ -334,6 +334,21 @@ export class BudgetStore {
     }
   }
 
+  /** Puts a deleted transaction back exactly as it was, in its original position. */
+  restoreTransaction(transaction: Transaction, index = 0): void {
+    this.patch((ws) => {
+      if (ws.transactions.some((t) => t.id === transaction.id)) return ws;
+      const transactions = [...ws.transactions];
+      transactions.splice(Math.min(index, transactions.length), 0, transaction);
+      return { ...ws, transactions };
+    });
+    if (this.activeUid) {
+      void this.persist(() =>
+        this.repository.upsertTransaction(this.activeUid as string, transaction),
+      );
+    }
+  }
+
   transactionById(id: string): Transaction | undefined {
     return this.transactions().find((t) => t.id === id);
   }

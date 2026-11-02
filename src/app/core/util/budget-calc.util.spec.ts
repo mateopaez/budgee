@@ -12,6 +12,7 @@ import {
   computeBudgetSummary,
   expenseSpendByCategory,
   isBudgetIncluded,
+  isFutureExpense,
   projectPeriod,
   totalByType,
 } from './budget-calc.util';
@@ -271,5 +272,22 @@ describe('group roll up', () => {
       makeTransaction({ categoryId: 'cat_groceries', amountCents: 60_000, date: '2026-08-30' }),
     ]);
     expect(summary.expensesCents).toBe(0);
+  });
+});
+
+describe('future dated expenses', () => {
+  it('are not counted as spent until their date arrives', () => {
+    const summary = summaryFor([
+      makeTransaction({ categoryId: 'cat_groceries', amountCents: 4_000, date: TODAY }),
+      makeTransaction({ categoryId: 'cat_groceries', amountCents: 9_000, date: '2026-09-20' }),
+    ]);
+    expect(summary.expensesCents).toBe(4_000);
+    expect(summary.leftToSpendCents).toBe(150_000 - 4_000);
+  });
+
+  it('only applies to expenses', () => {
+    expect(isFutureExpense({ type: 'expense', date: '2026-09-09' }, TODAY)).toBe(true);
+    expect(isFutureExpense({ type: 'expense', date: TODAY }, TODAY)).toBe(false);
+    expect(isFutureExpense({ type: 'income', date: '2026-09-09' }, TODAY)).toBe(false);
   });
 });

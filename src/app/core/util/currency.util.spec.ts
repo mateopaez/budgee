@@ -1,4 +1,9 @@
-import { centsToInputString, formatMoney, parseMoneyToCents } from './currency.util';
+import {
+  centsToInputString,
+  formatMoney,
+  parseMoneyToCents,
+  sanitizeAmountInput,
+} from './currency.util';
 
 describe('currency utilities', () => {
   it('formats whole dollars by default', () => {
@@ -14,7 +19,7 @@ describe('currency utilities', () => {
   });
 
   it('keeps the minus sign in front for negative amounts', () => {
-    expect(formatMoney(-153_900)).toBe('-$1,539');
+    expect(formatMoney(-153_900)).toBe('\u2212$1,539');
   });
 
   it('compacts thousands for calendar cells', () => {
@@ -22,11 +27,24 @@ describe('currency utilities', () => {
     expect(formatMoney(9_800, { compact: true })).toBe('$98');
   });
 
+  it('compacts millions so large headline figures fit', () => {
+    expect(formatMoney(120_000_000, { compact: true })).toBe('$1.2M');
+    expect(formatMoney(100_000_000, { compact: true })).toBe('$1M');
+  });
+
   it('parses typed input into cents', () => {
     expect(parseMoneyToCents('1,234.50')).toBe(123_450);
     expect(parseMoneyToCents('$12')).toBe(1_200);
     expect(parseMoneyToCents('')).toBeNull();
     expect(parseMoneyToCents('abc')).toBeNull();
+  });
+
+  it('keeps only digits and one decimal point while typing', () => {
+    expect(sanitizeAmountInput('abc')).toBe('');
+    expect(sanitizeAmountInput('-5')).toBe('5');
+    expect(sanitizeAmountInput('12.505')).toBe('12.50');
+    expect(sanitizeAmountInput('1.2.3')).toBe('1.23');
+    expect(sanitizeAmountInput('$1,234.5')).toBe('1234.5');
   });
 
   it('round trips through the editor input format', () => {

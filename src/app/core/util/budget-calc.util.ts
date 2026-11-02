@@ -21,6 +21,7 @@ import { budgetExpenseAllocations, budgetExpenseCents } from './transaction-spli
  *    savings bucket.
  *  - Transactions flagged `excludedFromBudget` never affect any total.
  *  - Transactions in a currency other than CAD never affect any total.
+ *  - Expenses dated after today are not counted until their date arrives.
  *  - categoryRemaining = plannedAmount - includedExpenseSpend
  *  - leftToSpend      = sum(planned expense) - sum(included expenses in planned expense categories)
  *  - dailyBudget      = leftToSpend / max(1, remainingDaysInBudgetPeriod)
@@ -117,6 +118,11 @@ export function isBudgetIncluded(
   return false;
 }
 
+/** An expense dated after today, which does not count as spent yet. */
+export function isFutureExpense(tx: Pick<Transaction, 'type' | 'date'>, today: IsoDate): boolean {
+  return tx.type === 'expense' && tx.date > today;
+}
+
 /** Sum of included transactions of one type inside the period. */
 export function totalByType(
   transactions: readonly Transaction[],
@@ -184,7 +190,9 @@ export function computeBudgetSummary(input: BudgetSummaryInput): BudgetSummary {
   const categoriesById = new Map(categories.map((c) => [c.id, c]));
 
   const inPeriod = input.transactions.filter((tx) => isInPeriod(tx, period));
-  const included = inPeriod.filter((tx) => isBudgetIncluded(tx, budget, walletsById));
+  const included = inPeriod.filter(
+    (tx) => isBudgetIncluded(tx, budget, walletsById) && !isFutureExpense(tx, today),
+  );
 
   const incomeCents = totalByType(included, 'income');
   const expensesCents = totalByType(included, 'expense');

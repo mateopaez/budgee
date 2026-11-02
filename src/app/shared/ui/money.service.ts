@@ -2,11 +2,17 @@ import { Injectable, computed, inject } from '@angular/core';
 import { BudgetStore } from '../../core/state/budget-store';
 import { formatMoney, type MoneyFormatOptions } from '../../core/util/currency.util';
 
+const HEADLINE_COMPACT_FROM_CENTS = 10_000_000;
+
 /**
  * Currency formatting that respects the user's display preferences.
  *
  * Templates call `money.fmt(cents)`; because the method reads a signal it stays
- * reactive, so flipping "show double decimals" updates every amount at once.
+ * reactive, so flipping a display setting updates every amount at once.
+ *
+ * "Show cents" drives `fmt`, used for single amounts such as a recurring bill.
+ * "Round totals to whole dollars" drives `summary` on its own: when it is off,
+ * totals show cents. Transaction rows and the editor always show cents.
  */
 @Injectable({ providedIn: 'root' })
 export class MoneyFormat {
@@ -30,28 +36,36 @@ export class MoneyFormat {
     return formatMoney(cents, { ...this.options(), ...overrides });
   }
 
-  /** Large headline totals, which can be rounded to whole dollars. */
+  /** Totals, which are rounded to whole dollars unless that setting is off. */
   summary(cents: number, overrides: MoneyFormatOptions = {}): string {
-    const base = this.options();
     return formatMoney(cents, {
-      ...base,
-      decimals: this.roundSummaries() ? false : base.decimals,
+      ...this.options(),
+      decimals: !this.roundSummaries(),
       ...overrides,
     });
+  }
+
+  /**
+   * Summary figures in tight spots, such as the List header columns. From
+   * $100,000 the value is compacted to $120K or $1.2M so it cannot overflow.
+   */
+  headline(cents: number): string {
+    if (Math.abs(cents) >= HEADLINE_COMPACT_FROM_CENTS) return this.compact(cents);
+    return this.summary(cents);
   }
 
   compact(cents: number): string {
     return formatMoney(cents, { ...this.options(), decimals: false, compact: true });
   }
 
-  /** Amount with the sign convention used by transaction rows. */
+  /** Amount with the sign convention used by transaction rows: −$61 and +$50. */
   signed(
     cents: number,
     type: 'expense' | 'income' | 'transfer',
-    currency?: string,
+    overrides: MoneyFormatOptions = {},
   ): string {
-    const overrides = currency ? { currency } : {};
     if (type === 'income') return this.fmt(cents, { signed: true, ...overrides });
+    if (type === 'expense') return this.fmt(-Math.abs(cents), overrides);
     return this.fmt(cents, overrides);
   }
 }

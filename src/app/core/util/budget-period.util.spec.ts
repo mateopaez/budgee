@@ -1,6 +1,7 @@
 import { makeBudget } from '../testing/factories';
 import {
   elapsedDaysInPeriod,
+  leftToSpendLabel,
   periodContaining,
   periodLengthInDays,
   remainingDaysInPeriod,
@@ -79,5 +80,12 @@ describe('budget period boundaries', () => {
     expect(remainingDaysInPeriod(period, '2026-09-30')).toBe(1);
     expect(remainingDaysInPeriod(period, '2026-10-05')).toBe(0);
     expect(elapsedDaysInPeriod(period, '2026-08-20')).toBe(0);
+  });
+});
+
+describe('left to spend label', () => {
+  it('names the month for monthly budgets and the period otherwise', () => {
+    expect(leftToSpendLabel('monthly')).toBe('Left to spend this month');
+    expect(leftToSpendLabel('weekly')).toBe('Left to spend this period');
   });
 });

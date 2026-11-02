@@ -155,3 +155,11 @@ export function elapsedDaysInPeriod(period: BudgetPeriod, today: IsoDate): numbe
   if (today >= period.end) return length;
   return Math.min(length, diffDays(period.start, today) + 1);
 }
+
+/**
+ * The one name for "planned budget minus spent", used everywhere that figure
+ * appears: "Left to spend this month", or "this period" for other budgets.
+ */
+export function leftToSpendLabel(periodType: BudgetPeriodType | undefined): string {
+  return `Left to spend this ${periodType === 'monthly' ? 'month' : 'period'}`;
+}
