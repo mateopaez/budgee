@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { AccentHeader } from '../../shared/ui/accent-header';
 import { SegmentedTabs, type SegmentOption } from '../../shared/ui/segmented-tabs';
 import { Icon } from '../../shared/ui/icon';
@@ -10,9 +12,14 @@ import { ListTab } from './list-tab';
 
 type TabId = 'overview' | 'spending' | 'list';
 
+const TAB_IDS: readonly TabId[] = ['overview', 'spending', 'list'];
+
 /**
  * Overview shell. All three tabs read the same store signals, so a transaction
  * edit updates every one of them at once.
+ *
+ * The open tab lives in the `tab` query parameter, so returning from the
+ * transaction editor lands back on the tab the user started from.
  */
 @Component({
   selector: 'app-overview-page',
@@ -26,6 +33,7 @@ type TabId = 'overview' | 'spending' | 'list';
         routerLink="/settings"
         class="flex size-11 items-center justify-center rounded-full bg-white/18 text-white"
         aria-label="Settings"
+        title="Settings"
       >
         <app-icon name="gear" [size]="20" />
       </a>
@@ -36,7 +44,8 @@ type TabId = 'overview' | 'spending' | 'list';
         headerTrailing
         routerLink="/budget"
         class="flex size-11 items-center justify-center rounded-full bg-white/18 text-white"
-        aria-label="Open budget"
+        aria-label="Switch to Budget"
+        title="Switch to Budget"
       >
         <app-icon name="pie" [size]="20" />
       </a>
@@ -71,6 +80,8 @@ type TabId = 'overview' | 'spending' | 'list';
 })
 export class OverviewPage {
   private readonly store = inject(BudgetStore);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly tabs: SegmentOption[] = [
     { id: 'overview', label: 'Overview' },
@@ -78,10 +89,21 @@ export class OverviewPage {
     { id: 'list', label: 'List' },
   ];
 
-  protected readonly tab = signal<TabId>('overview');
+  protected readonly tab = toSignal(
+    this.route.queryParamMap.pipe(map((params) => toTabId(params.get('tab')))),
+    { initialValue: toTabId(this.route.snapshot.queryParamMap.get('tab')) },
+  );
   protected readonly budgetName = computed(() => this.store.activeBudget()?.name ?? 'No budget');
 
   protected setTab(id: string): void {
-    this.tab.set(id as TabId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: id === 'overview' ? null : id },
+      replaceUrl: true,
+    });
   }
+}
+
+function toTabId(value: string | null): TabId {
+  return TAB_IDS.find((id) => id === value) ?? 'overview';
 }

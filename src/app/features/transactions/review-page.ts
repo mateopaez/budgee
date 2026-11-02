@@ -5,6 +5,8 @@ import { SheetShell } from '../../shared/ui/sheet-shell';
 import { TransactionRow } from '../../shared/ui/transaction-row';
 import { Icon } from '../../shared/ui/icon';
 import { BudgetStore } from '../../core/state/budget-store';
+import { ConfirmService } from '../../shared/ui/confirm.service';
+import { CATEGORY_IDS } from '../../core/data/taxonomy';
 import type { Transaction } from '../../core/models';
 
 /** Queue of imported rows that still need a category. */
@@ -43,7 +45,7 @@ import type { Transaction } from '../../core/models';
             (click)="acceptAll()"
           >
             <app-icon name="check" [size]="18" />
-            Accept all
+            Accept all {{ pending().length }} as shown
           </button>
         </div>
       }
@@ -54,6 +56,7 @@ export class ReviewPage {
   private readonly store = inject(BudgetStore);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
+  private readonly confirm = inject(ConfirmService);
   private readonly canGoBack = this.router.getCurrentNavigation()?.previousNavigation != null;
 
   protected readonly pending = computed(() =>
@@ -64,7 +67,19 @@ export class ReviewPage {
     void this.router.navigate(['/transactions', tx.id, 'edit']);
   }
 
-  protected acceptAll(): void {
+  protected async acceptAll(): Promise<void> {
+    const pending = this.pending();
+    const unknown = pending.filter((t) => t.categoryId === CATEGORY_IDS.unknown).length;
+    if (unknown > 0) {
+      const confirmed = await this.confirm.ask({
+        title: unknown === 1 ? '1 is still Unknown' : `${unknown} are still Unknown`,
+        message: `${unknown} of ${pending.length} will stay in the Unknown category. You can change ${unknown === 1 ? 'it' : 'them'} later from the list.`,
+        confirmLabel: 'Accept all',
+        cancelLabel: 'Go back',
+        destructive: false,
+      });
+      if (!confirmed) return;
+    }
     this.store.acceptAllInReview();
   }
 

@@ -1,5 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators, type AbstractControl } from '@angular/forms';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Location } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -11,12 +20,27 @@ import { ToggleSwitch } from '../../shared/ui/toggle-switch';
 import { OptionPickerSheet, type PickerOption } from '../../shared/ui/option-picker-sheet';
 import { BudgetStore } from '../../core/state/budget-store';
 import { ConfirmService } from '../../shared/ui/confirm.service';
-import { centsToInputString, parseMoneyToCents } from '../../core/util/currency.util';
+import { SelectOnFocus } from '../../shared/ui/select-on-focus';
+import { ToastService } from '../../shared/ui/toast.service';
+import {
+  LARGE_AMOUNT_CENTS,
+  MAX_AMOUNT_CENTS,
+  centsToInputString,
+  formatMoney,
+  parseMoneyToCents,
+  sanitizeAmountInput,
+} from '../../core/util/currency.util';
 import { addDays, relativeDayLabel, shortDateLabel } from '../../core/util/date.util';
 import { createId } from '../../core/util/id.util';
 import { CATEGORY_IDS } from '../../core/data/taxonomy';
 import { splitsSumCents } from '../../core/util/transaction-split.util';
-import type { RecurrenceRule, TransactionDraft, TransactionSplit, TransactionType } from '../../core/models';
+import type {
+  RecurrenceRule,
+  Transaction,
+  TransactionDraft,
+  TransactionSplit,
+  TransactionType,
+} from '../../core/models';
 import type { IconName } from '../../shared/ui/icon-set';
 
 type PickerKind = 'category' | 'splitCategory' | 'fromWallet' | 'toWallet' | 'recurrence' | null;
@@ -27,6 +51,17 @@ interface SplitDraft {
   amount: string;
   settled: boolean;
 }
+
+const TITLE_MAX = 80;
+const NOTE_MAX = 500;
+/** Character counters appear once this close to the limit. */
+const COUNTER_MARGIN = 20;
+
+const AMOUNT_MESSAGES = {
+  missing: 'Enter an amount, like 12.50',
+  invalid: 'Use numbers only, like 12.50',
+  tooLarge: `Enter an amount up to ${formatMoney(MAX_AMOUNT_CENTS, { decimals: true })}`,
+} as const;
 
 const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
   none: 'Never repeat',
@@ -55,6 +90,7 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
     ToggleSwitch,
     OptionPickerSheet,
     ReactiveFormsModule,
+    SelectOnFocus,
   ],
   template: `
     @if (loadState() === 'missing') {
@@ -84,15 +120,31 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
           <div class="flex items-baseline gap-1">
             <span class="text-[1.6rem] font-semibold text-ink-muted">$</span>
             <input
+              #amountInput
               id="amount"
               type="text"
               inputmode="decimal"
+              autocomplete="off"
               formControlName="amount"
-              class="w-[7.5ch] bg-transparent text-center text-[3rem] leading-none font-semibold text-ink outline-none"
+              appSelectOnFocus
+              class="w-[7.5ch] rounded-xl bg-transparent text-center text-[3rem] leading-none font-semibold text-ink"
+              [style.box-shadow]="amountError() ? '0 0 0 2px var(--color-negative)' : null"
+              [attr.aria-invalid]="amountError() ? true : null"
+              [attr.aria-describedby]="amountError() ? 'amount-error' : null"
               placeholder="0.00"
+              (input)="onAmountInput($event)"
               (blur)="onTotalAmountBlur()"
             />
           </div>
+          @if (amountError(); as message) {
+            <p
+              id="amount-error"
+              role="alert"
+              class="mt-2 text-center text-[0.88rem] text-[color:var(--color-negative)]"
+            >
+              {{ message }}
+            </p>
+          }
 
           <div role="tablist" aria-label="Transaction type" class="mt-5 flex items-center gap-1">
             @for (option of typeOptions; track option.id) {
@@ -202,7 +254,7 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
                           type="text"
                           inputmode="decimal"
                           placeholder="0.00"
-                          class="w-[5.5ch] bg-transparent text-right text-[1.05rem] font-semibold text-ink outline-none placeholder:text-ink-faint"
+                          class="w-[5.5ch] bg-transparent text-right text-[1.05rem] font-semibold text-ink placeholder:text-ink-faint"
                           [value]="split.amount"
                           [class.line-through]="split.settled"
                           (input)="onSplitAmountInput(i, $event)"
@@ -297,9 +349,16 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
               id="merchant"
               type="text"
               formControlName="merchant"
-              class="min-h-[3.5rem] flex-1 bg-transparent text-[1rem] text-ink outline-none placeholder:text-ink-faint"
+              [attr.maxlength]="titleMax"
+              [attr.aria-describedby]="showTitleCount() ? 'merchant-count' : null"
+              class="min-h-[3.5rem] min-w-0 flex-1 bg-transparent text-[1rem] text-ink placeholder:text-ink-faint"
               placeholder="Add a title"
             />
+            @if (showTitleCount()) {
+              <span id="merchant-count" class="shrink-0 text-[0.8rem] text-ink-muted" aria-live="polite">
+                {{ titleLength() }}/{{ titleMax }}
+              </span>
+            }
           </div>
 
           <div class="flex min-h-[3.75rem] items-center gap-3 border-b border-line">
@@ -324,6 +383,11 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
               <app-icon name="chevronRight" [size]="20" />
             </button>
           </div>
+          @if (isFutureDate()) {
+            <p class="border-b border-line py-2 pl-12 text-[0.85rem] text-ink-muted" role="status">
+              This date is in the future.
+            </p>
+          }
 
           <button
             type="button"
@@ -358,9 +422,16 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
             id="note"
             formControlName="note"
             rows="3"
-            class="min-h-[5.5rem] w-full resize-y rounded-[1.15rem] border border-line bg-sunken/70 px-4 py-3 text-[1rem] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            [attr.maxlength]="noteMax"
+            [attr.aria-describedby]="showNoteCount() ? 'note-count' : null"
+            class="min-h-[5.5rem] w-full resize-y rounded-[1.15rem] border border-line bg-sunken/70 px-4 py-3 text-[1rem] leading-relaxed text-ink placeholder:text-ink-faint focus:border-line-strong"
             placeholder="Optional notes about this transaction"
           ></textarea>
+          @if (showNoteCount()) {
+            <p id="note-count" class="mt-1 text-right text-[0.8rem] text-ink-muted" aria-live="polite">
+              {{ noteLength() }}/{{ noteMax }}
+            </p>
+          }
         </div>
 
         @if (errorMessage()) {
@@ -376,6 +447,7 @@ const RECURRENCE_LABELS: Record<RecurrenceRule, string> = {
             type="button"
             class="flex size-14 items-center justify-center rounded-full bg-raised-2 text-ink"
             aria-label="Delete transaction"
+            title="Delete transaction"
             (click)="remove()"
           >
             <app-icon name="trash" [size]="22" />
@@ -450,6 +522,7 @@ export class TransactionEditorPage {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly confirm = inject(ConfirmService);
+  private readonly toasts = inject(ToastService);
   private readonly location = inject(Location);
   private readonly canGoBack =
     this.router.getCurrentNavigation()?.previousNavigation != null;
@@ -457,6 +530,8 @@ export class TransactionEditorPage {
   protected readonly picker = signal<PickerKind>(null);
   protected readonly splitPickerIndex = signal<number | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
+  protected readonly amountError = signal<string | null>(null);
+  private readonly amountInput = viewChild<ElementRef<HTMLInputElement>>('amountInput');
   protected readonly loadState = signal<'ready' | 'loading' | 'missing'>('ready');
   protected readonly splits = signal<SplitDraft[]>([]);
 
@@ -479,13 +554,13 @@ export class TransactionEditorPage {
   protected readonly splitting = computed(() => this.splits().length >= 2);
 
   protected readonly form = this.fb.nonNullable.group({
-    amount: ['', [Validators.required, positiveAmount]],
+    amount: ['', Validators.required],
     type: ['expense' as TransactionType, Validators.required],
     categoryId: ['', Validators.required],
     fromWalletId: [null as string | null],
     toWalletId: [null as string | null],
-    merchant: [''],
-    note: [''],
+    merchant: ['', Validators.maxLength(TITLE_MAX)],
+    note: ['', Validators.maxLength(NOTE_MAX)],
     date: ['', Validators.required],
     recurrence: ['none' as RecurrenceRule],
     excludedFromBudget: [false],
@@ -496,9 +571,15 @@ export class TransactionEditorPage {
 
   private readonly formState = signal(0);
 
+  protected readonly titleMax = TITLE_MAX;
+  protected readonly noteMax = NOTE_MAX;
+
   constructor() {
     this.form.valueChanges.subscribe(() => this.formState.update((v) => v + 1));
     void this.hydrate();
+    afterNextRender(() => {
+      if (!this.isEditing()) this.amountInput()?.nativeElement.focus();
+    });
   }
 
   private async hydrate(): Promise<void> {
@@ -509,7 +590,11 @@ export class TransactionEditorPage {
     if (!id) {
       this.loadState.set('ready');
       this.form.patchValue({
-        categoryId: prefs?.defaultExpenseCategoryId ?? this.store.categories()[0]?.id ?? '',
+        categoryId:
+          this.lastUsedCategoryId('expense') ??
+          prefs?.defaultExpenseCategoryId ??
+          this.store.categories()[0]?.id ??
+          '',
         fromWalletId: wallets[0]?.id ?? null,
         toWalletId: null,
         date: this.store.today(),
@@ -608,6 +693,28 @@ export class TransactionEditorPage {
     return relative === 'Today' || relative === 'Yesterday' ? relative : shortDateLabel(date);
   });
 
+  protected readonly isFutureDate = computed(() => {
+    this.formState();
+    const date = this.form.controls.date.value;
+    return !!date && date > this.store.today();
+  });
+
+  protected readonly titleLength = computed(() => {
+    this.formState();
+    return this.form.controls.merchant.value.length;
+  });
+  protected readonly showTitleCount = computed(
+    () => this.titleLength() >= TITLE_MAX - COUNTER_MARGIN,
+  );
+
+  protected readonly noteLength = computed(() => {
+    this.formState();
+    return this.form.controls.note.value.length;
+  });
+  protected readonly showNoteCount = computed(
+    () => this.noteLength() >= NOTE_MAX - COUNTER_MARGIN * 2,
+  );
+
   protected readonly recurrenceLabel = computed(() => {
     this.formState();
     return RECURRENCE_LABELS[this.form.controls.recurrence.value];
@@ -671,12 +778,13 @@ export class TransactionEditorPage {
     this.form.controls.type.setValue(next);
     if (next !== 'expense') this.splits.set([]);
 
-    const defaultCategory =
+    const preferredCategory =
       next === 'income'
-        ? (prefs?.defaultIncomeCategoryId ?? '')
+        ? prefs?.defaultIncomeCategoryId
         : next === 'transfer'
-          ? (prefs?.defaultTransferCategoryId ?? '')
-          : (prefs?.defaultExpenseCategoryId ?? '');
+          ? prefs?.defaultTransferCategoryId
+          : prefs?.defaultExpenseCategoryId;
+    const defaultCategory = this.lastUsedCategoryId(next) ?? preferredCategory ?? '';
     const stillValid = this.categoryOptions().some(
       (o) => o.id === this.form.controls.categoryId.value,
     );
@@ -748,7 +856,7 @@ export class TransactionEditorPage {
   protected enableSplits(): void {
     const total = parseMoneyToCents(this.form.controls.amount.value);
     if (!total || total <= 0) {
-      this.errorMessage.set('Enter an amount before splitting.');
+      this.showAmountError(AMOUNT_MESSAGES.missing);
       return;
     }
     const primaryCategory =
@@ -835,6 +943,23 @@ export class TransactionEditorPage {
     if (index !== 0) this.rebalancePrimarySplit();
   }
 
+  /** Strips anything that is not a digit or a single decimal point as the user types. */
+  protected onAmountInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const raw = input.value;
+    const clean = sanitizeAmountInput(raw);
+    if (clean !== raw) {
+      const caret = Math.max(0, (input.selectionStart ?? raw.length) - (raw.length - clean.length));
+      input.value = clean;
+      input.setSelectionRange(caret, caret);
+      this.form.controls.amount.setValue(clean);
+      this.amountError.set(AMOUNT_MESSAGES.invalid);
+      return;
+    }
+    const cents = parseMoneyToCents(clean);
+    this.amountError.set(cents !== null && cents > MAX_AMOUNT_CENTS ? AMOUNT_MESSAGES.tooLarge : null);
+  }
+
   protected onTotalAmountBlur(): void {
     if (!this.splitting()) return;
     this.rebalancePrimarySplit();
@@ -855,14 +980,19 @@ export class TransactionEditorPage {
     );
   }
 
-  protected save(): void {
+  protected async save(): Promise<void> {
     const value = this.form.getRawValue();
     const amountCents = parseMoneyToCents(value.amount);
 
     if (!amountCents || amountCents <= 0) {
-      this.errorMessage.set('Enter an amount greater than zero.');
+      this.showAmountError(AMOUNT_MESSAGES.missing);
       return;
     }
+    if (amountCents > MAX_AMOUNT_CENTS) {
+      this.showAmountError(AMOUNT_MESSAGES.tooLarge);
+      return;
+    }
+    this.amountError.set(null);
     if (!value.date) {
       this.errorMessage.set('Choose a date.');
       return;
@@ -927,9 +1057,24 @@ export class TransactionEditorPage {
       ...(splits ? { splits } : { splits: undefined }),
     };
 
+    if (amountCents > LARGE_AMOUNT_CENTS) {
+      const confirmed = await this.confirm.ask({
+        title: 'That’s a big amount.',
+        message: `Is ${formatMoney(amountCents, { decimals: true })} correct?`,
+        confirmLabel: 'Yes',
+        cancelLabel: 'Change',
+        destructive: false,
+      });
+      if (!confirmed) {
+        this.focusAmount();
+        return;
+      }
+    }
+
     const id = this.transactionId();
     if (id) this.store.updateTransaction(id, draft);
     else this.store.addTransaction(draft);
+    this.toasts.show('Saved');
     this.close();
   }
 
@@ -942,19 +1087,47 @@ export class TransactionEditorPage {
       confirmLabel: 'Delete',
     });
     if (!confirmed) return;
+    const index = this.store.transactions().findIndex((t) => t.id === id);
+    const deleted = this.store.transactions()[index];
     this.store.deleteTransaction(id);
+    if (deleted) {
+      this.toasts.show('Deleted.', {
+        action: { label: 'Undo', run: () => this.store.restoreTransaction(deleted, index) },
+        durationMs: 5000,
+      });
+    }
     this.close();
+  }
+
+  private showAmountError(message: string): void {
+    this.amountError.set(message);
+    this.focusAmount();
+  }
+
+  private focusAmount(): void {
+    const input = this.amountInput()?.nativeElement;
+    if (!input) return;
+    input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    input.focus({ preventScroll: true });
+  }
+
+  /** Category of the most recent transaction of this type the user entered by hand. */
+  private lastUsedCategoryId(type: TransactionType): string | null {
+    const categories = this.store.categoriesById();
+    let latest: Transaction | null = null;
+    for (const tx of this.store.transactions()) {
+      if (tx.type !== type || tx.linkedAccountId || tx.externalId) continue;
+      const category = categories.get(tx.categoryId);
+      if (!category || category.archived) continue;
+      if (!latest || tx.createdAt > latest.createdAt) latest = tx;
+    }
+    return latest?.categoryId ?? null;
   }
 
   protected close(): void {
     if (this.canGoBack) this.location.back();
     else void this.router.navigateByUrl('/overview');
   }
-}
-
-function positiveAmount(control: AbstractControl): { amount: true } | null {
-  const cents = parseMoneyToCents(String(control.value ?? ''));
-  return cents !== null && cents > 0 ? null : { amount: true };
 }
 
 function walletKindLabel(kind: string): string {

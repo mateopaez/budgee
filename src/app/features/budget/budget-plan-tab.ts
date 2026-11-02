@@ -13,6 +13,7 @@ import {
   CategoryEditorSheet,
 } from '../../shared/ui/category-editor-sheet';
 import { ConfirmService } from '../../shared/ui/confirm.service';
+import { SelectOnFocus } from '../../shared/ui/select-on-focus';
 import { parseMoneyToCents } from '../../core/util/currency.util';
 import { createId } from '../../core/util/id.util';
 import type {
@@ -56,6 +57,7 @@ type PlanPicker =
     SheetShell,
     OptionPickerSheet,
     CategoryEditorSheet,
+    SelectOnFocus,
   ],
   host: { class: 'flex flex-col gap-4 pt-1' },
   template: `
@@ -139,9 +141,9 @@ type PlanPicker =
                 type="text"
                 inputmode="decimal"
                 class="min-h-[2.75rem] w-[6.5rem] rounded-xl bg-sunken px-3 text-right text-[1rem] font-semibold text-ink outline-none"
+                appSelectOnFocus
                 [value]="display(row.plannedCents)"
                 (change)="updatePlan(row.categoryId, $any($event.target).value)"
-                (focus)="$any($event.target).select()"
               />
             </li>
           }
@@ -203,7 +205,7 @@ type PlanPicker =
                     style="color: #ffa9ac"
                     (click)="removePlan(row.categoryId, row.name)"
                   >
-                    Remove
+                    Remove from plan
                   </button>
                 </li>
               } @empty {
@@ -375,7 +377,13 @@ export class BudgetPlanTab {
     const target = this.picker();
     if (target?.mode === 'group') return 'Every group is already on this plan.';
     if (target?.mode === 'category' && target.groupId) {
-      return 'Every category in this group is already on the plan.';
+      const groupId = target.groupId;
+      const hasCategories = this.store
+        .categories()
+        .some((category) => category.groupId === groupId && !category.archived);
+      return hasCategories
+        ? 'Every category in this group is already on the plan.'
+        : 'No categories yet. Add your first one below.';
     }
     return 'Nothing to choose.';
   });
@@ -476,9 +484,9 @@ export class BudgetPlanTab {
     const budget = this.store.activeBudget();
     if (!budget) return;
     const confirmed = await this.confirm.ask({
-      title: `Remove ${name}?`,
+      title: `Remove ${name} from plan?`,
       message: 'It leaves this plan. The category stays available for transactions.',
-      confirmLabel: 'Remove',
+      confirmLabel: 'Remove from plan',
     });
     if (!confirmed) return;
     this.store.saveBudget({
@@ -590,7 +598,7 @@ export class BudgetPlanTab {
       this.store.categories().filter((category) => category.groupId === groupId).map((category) => category.id),
     );
     const confirmed = await this.confirm.ask({
-      title: `Remove ${name}?`,
+      title: `Remove ${name} from plan?`,
       message: 'Its categories leave this plan. They stay available for transactions.',
       confirmLabel: 'Remove from plan',
     });
