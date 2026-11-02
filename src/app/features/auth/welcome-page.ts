@@ -10,7 +10,7 @@ import { Icon } from '../../shared/ui/icon';
   template: `
     <app-auth-layout
       heading="Money, minus the guesswork."
-      subheading="Budgee keeps your Canadian dollars organised: plan a budget, track what you spend and see where it went."
+      subheading="Budgee keeps your Canadian dollars organized: plan a budget, track what you spend and see where it went."
     >
       <div class="mt-8 flex flex-col gap-3" aria-hidden="true">
         @for (point of points; track point.title) {

@@ -37,6 +37,10 @@ export interface PickerOption {
         </div>
       }
 
+      @if (options().length === 0 && actionLabel()) {
+        <p class="pt-4 pb-3 text-center text-[0.95rem] text-ink-muted">{{ emptyLabel() }}</p>
+      }
+
       @if (actionLabel(); as label) {
         <button
           type="button"
@@ -92,7 +96,7 @@ export interface PickerOption {
         </ul>
       }
 
-      @if (grouped().length === 0) {
+      @if (grouped().length === 0 && !(options().length === 0 && actionLabel())) {
         <p class="py-10 text-center text-[0.95rem] text-ink-muted">
           {{ options().length === 0 ? emptyLabel() : 'Nothing matches that search.' }}
         </p>

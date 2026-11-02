@@ -61,7 +61,7 @@ export class BottomNav {
       { path: '/budgee', label: 'Budgee', icon: 'jar', accent: 'budgee' },
       { path: '/overview', label: 'Overview', icon: 'eye', accent: 'overview' },
       { path: '/budget', label: 'Budget', icon: 'pie', accent: 'budget' },
-      { path: '/save', label: 'Save', icon: 'heart', accent: 'save' },
+      { path: '/save', label: 'Bills', icon: 'heart', accent: 'save' },
       { path: '/tools', label: 'Tools', icon: 'briefcase', accent: 'tools' },
     ];
     return showSave ? all : all.filter((i) => i.path !== '/save');

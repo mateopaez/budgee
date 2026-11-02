@@ -18,7 +18,11 @@ import { SessionService } from '../../core/state/session.service';
   imports: [RouterOutlet, BottomNav],
   host: { class: 'flex min-h-[100dvh] flex-col bg-canvas text-ink' },
   template: `
-    <div [attr.data-accent]="accent()" class="flex min-h-[100dvh] flex-col">
+    <div
+      [attr.data-accent]="accent()"
+      class="flex min-h-[100dvh] flex-col"
+      [style.--nav-clearance]="showDemoBanner() ? demoBannerClearance : null"
+    >
       @if (store.status() === 'error') {
         <div
           class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center"
@@ -78,6 +82,10 @@ export class AppShell {
   private readonly session = inject(SessionService);
 
   protected readonly bannerDismissed = signal(false);
+
+  /** Normal nav clearance plus the height of the demo banner that sits above the nav. */
+  protected readonly demoBannerClearance =
+    'calc(var(--nav-height) + var(--safe-bottom) + 1.5rem + 3.75rem)';
 
   private readonly url = toSignal(
     this.router.events.pipe(

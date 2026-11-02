@@ -17,6 +17,29 @@ import { GROUP_IDS } from '../../core/data/taxonomy';
 import type { Category, CategoryGroup, CategoryKind } from '../../core/models';
 import { ICONS, type IconName } from './icon-set';
 
+/** Interface glyphs that would read as buttons, so they are not offered as category icons. */
+const UI_ONLY_ICONS: ReadonlySet<IconName> = new Set<IconName>([
+  'trash',
+  'plus',
+  'minus',
+  'check',
+  'x',
+  'chevronLeft',
+  'chevronRight',
+  'chevronUp',
+  'chevronDown',
+  'arrowLeft',
+  'search',
+  'gear',
+  'calendar',
+  'pencil',
+  'filter',
+  'eyeOff',
+  'grip',
+]);
+
+const CATEGORY_ICONS = (Object.keys(ICONS) as IconName[]).filter((icon) => !UI_ONLY_ICONS.has(icon));
+
 export const CATEGORY_PALETTE = [
   'var(--color-cat-housing)',
   'var(--color-cat-food)',
@@ -68,6 +91,18 @@ export function blankCategory(groupId: string, kind: CategoryKind = 'expense'): 
         <p id="category-name-error" role="alert" class="mt-2 text-[0.9rem] text-[color:var(--color-negative)]">
           {{ nameError() }}
         </p>
+      }
+
+      @if (!isNew() && !draft().system) {
+        <button
+          type="button"
+          class="mt-3 flex min-h-[2.75rem] items-center gap-2 rounded-full border border-line-strong px-4 text-[0.9rem] font-semibold"
+          style="color: #ffa9ac"
+          (click)="removed.emit(draft())"
+        >
+          <app-icon name="trash" [size]="16" />
+          Delete category
+        </button>
       }
 
       @if (!lockKind()) {
@@ -174,7 +209,7 @@ export function blankCategory(groupId: string, kind: CategoryKind = 'expense'): 
             style="color: #ffa9ac"
             (click)="removeGroup(group)"
           >
-            Remove {{ group.name }} group
+            Delete {{ group.name }} group
           </button>
         }
       </fieldset>
@@ -204,7 +239,7 @@ export function blankCategory(groupId: string, kind: CategoryKind = 'expense'): 
           Icon
         </legend>
         <div class="mt-2 grid grid-cols-6 gap-2">
-          @for (icon of iconNames; track icon) {
+          @for (icon of iconNames(); track icon) {
             <button
               type="button"
               class="flex size-12 items-center justify-center rounded-2xl"
@@ -219,17 +254,6 @@ export function blankCategory(groupId: string, kind: CategoryKind = 'expense'): 
           }
         </div>
       </fieldset>
-
-      @if (!isNew() && !draft().system) {
-        <button
-          type="button"
-          class="mt-6 min-h-[3.25rem] w-full rounded-full border border-line-strong text-[0.95rem] font-semibold"
-          style="color: #ffa9ac"
-          (click)="removed.emit(draft())"
-        >
-          Delete category
-        </button>
-      }
 
       <div sheetFooter class="pt-4">
         <button
@@ -260,7 +284,11 @@ export class CategoryEditorSheet {
 
   protected readonly palette = CATEGORY_PALETTE;
   protected readonly kinds: CategoryKind[] = ['expense', 'income', 'transfer'];
-  protected readonly iconNames = Object.keys(ICONS) as IconName[];
+  /** Category icons, plus the current one if an older category already uses a UI glyph. */
+  protected readonly iconNames = computed<IconName[]>(() => {
+    const current = this.category().icon;
+    return CATEGORY_ICONS.includes(current) ? CATEGORY_ICONS : [current, ...CATEGORY_ICONS];
+  });
   protected readonly draft = linkedSignal(() => this.category());
   protected readonly nameError = signal<string | null>(null);
   protected readonly addingGroup = signal(false);
@@ -342,12 +370,12 @@ export class CategoryEditorSheet {
     if (!replacement) return;
     const count = this.store.categories().filter((category) => category.groupId === group.id).length;
     const confirmed = await this.confirm.ask({
-      title: `Remove ${group.name}?`,
+      title: `Delete ${group.name}?`,
       message:
         count > 0
           ? `${count} ${count === 1 ? 'category moves' : 'categories move'} to ${replacement.name}.`
           : 'This group will be deleted.',
-      confirmLabel: 'Remove',
+      confirmLabel: 'Delete',
     });
     if (!confirmed) return;
     this.store.deleteGroup(group.id, replacement.id);

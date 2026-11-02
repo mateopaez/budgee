@@ -107,7 +107,7 @@ const INSIGHT_LABELS: Record<InsightKey, string> = {
             <span class="flex-1">
               <span class="block text-[1rem] text-ink">Include all transactions</span>
               <span class="mt-1 block text-[0.85rem] leading-relaxed text-ink-muted">
-                Count spending in unplanned categories as "Other expenses".
+                Count spending in unplanned categories as "Unplanned".
               </span>
             </span>
             <app-toggle-switch
@@ -206,7 +206,7 @@ const INSIGHT_LABELS: Record<InsightKey, string> = {
           class="mt-5 min-h-[3.25rem] w-full rounded-full border border-line-strong text-[0.9rem] font-semibold tracking-[0.1em] text-ink uppercase"
           (click)="remove()"
         >
-          Remove budget
+          Delete budget
         </button>
       }
 
@@ -354,10 +354,10 @@ export class BudgetEditPage {
     const budget = this.working();
     if (!budget) return;
     const confirmed = await this.confirm.ask({
-      title: `Remove ${budget.name}?`,
+      title: `Delete ${budget.name}?`,
       message:
         'The plan and its category amounts are deleted. Your transactions stay exactly where they are.',
-      confirmLabel: 'Remove budget',
+      confirmLabel: 'Delete budget',
     });
     if (!confirmed) return;
     this.store.deleteBudget(budget.id);

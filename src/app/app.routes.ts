@@ -68,7 +68,7 @@ export const routes: Routes = [
       },
       {
         path: 'save',
-        title: 'Save',
+        title: 'Bills',
         loadComponent: () => import('./features/save/save-page').then((m) => m.SavePage),
       },
       {

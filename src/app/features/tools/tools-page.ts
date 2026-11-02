@@ -9,6 +9,13 @@ import { PlaidApi } from '../../core/data/plaid-api';
 import { exportTransactionsCsv } from './csv-export';
 import type { IconName } from '../../shared/ui/icon-set';
 
+/**
+ * FAQ and Contact have no pages yet (they used to open Settings). Their tiles
+ * stay defined below; set this to true to show them again once the pages exist.
+ */
+const SHOW_HELP_TILES = false;
+const HELP_TILE_IDS: ReadonlySet<string> = new Set(['faq', 'contact']);
+
 interface ToolCard {
   readonly id: string;
   readonly title: string;
@@ -118,7 +125,7 @@ interface ToolCard {
 
       @if (store.status() === 'seeding' || disconnecting()) {
         <p class="mt-3 text-center text-[0.9rem] text-ink-muted" role="status" aria-live="polite">
-          {{ disconnecting() ? 'Disconnecting Plaid…' : 'Updating your Firestore data…' }}
+          {{ disconnecting() ? 'Disconnecting your bank…' : 'Updating your Firestore data…' }}
         </p>
       }
       @if (notice(); as text) {
@@ -171,7 +178,7 @@ export class ToolsPage {
   protected readonly email = computed(() => this.store.workspace()?.email || '');
   protected readonly initial = computed(() => (this.name()[0] ?? 'B').toUpperCase());
 
-  protected readonly cards: ToolCard[] = [
+  private readonly allCards: ToolCard[] = [
     {
       id: 'bank',
       title: 'Bank Connections',
@@ -222,7 +229,7 @@ export class ToolsPage {
     },
     {
       id: 'disconnect-plaid',
-      title: 'Disconnect Plaid',
+      title: 'Disconnect bank',
       body: 'Remove the bank link and keep your data',
       icon: 'link',
       color: 'var(--color-cat-bills)',
@@ -245,6 +252,10 @@ export class ToolsPage {
       link: '/settings',
     },
   ];
+
+  protected readonly cards = this.allCards.filter(
+    (card) => SHOW_HELP_TILES || !HELP_TILE_IDS.has(card.id),
+  );
 
   protected readonly resetOptions: PickerOption[] = [
     {
@@ -303,14 +314,14 @@ export class ToolsPage {
       .connections()
       .filter((connection) => connection.provider === 'plaid');
     if (connections.length === 0) {
-      this.notice.set('No Plaid bank is connected.');
+      this.notice.set('No bank is connected.');
       return;
     }
     const confirmed = await this.confirm.ask({
-      title: 'Disconnect Plaid?',
+      title: 'Disconnect bank?',
       message:
         'The bank link is removed. Transactions, wallets and budgets stay in Budgee. Reset data does not do this.',
-      confirmLabel: 'Disconnect Plaid',
+      confirmLabel: 'Disconnect bank',
     });
     if (!confirmed) return;
     this.disconnecting.set(true);
@@ -321,10 +332,10 @@ export class ToolsPage {
       this.notice.set(
         connections.length === 1
           ? `${connections[0]?.institutionName ?? 'Bank'} disconnected.`
-          : 'Plaid disconnected.',
+          : 'Banks disconnected.',
       );
     } catch (error) {
-      this.disconnectError.set(error instanceof Error ? error.message : 'Could not disconnect Plaid');
+      this.disconnectError.set(error instanceof Error ? error.message : 'Could not disconnect your bank');
     } finally {
       this.disconnecting.set(false);
     }

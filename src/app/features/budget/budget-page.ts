@@ -69,6 +69,7 @@ type TabId = 'plan' | 'remaining' | 'insights';
           routerLink="/settings"
           class="flex size-11 items-center justify-center rounded-full bg-white/18 text-white"
           aria-label="Settings"
+          title="Settings"
         >
           <app-icon name="gear" [size]="20" />
         </a>
@@ -80,6 +81,7 @@ type TabId = 'plan' | 'remaining' | 'insights';
           routerLink="/budget/edit"
           class="flex size-11 items-center justify-center rounded-full bg-white/18 text-white"
           aria-label="Edit budget"
+          title="Edit budget"
         >
           <app-icon name="pencil" [size]="20" />
         </a>

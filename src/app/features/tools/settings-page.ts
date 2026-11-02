@@ -45,18 +45,26 @@ const ACCENTS = [
         <section class="rounded-[1.5rem] bg-raised px-5">
           @for (area of areas; track area.key) {
             <div class="flex min-h-[3.75rem] items-center gap-3 not-first:border-t not-first:border-line">
-              <span class="flex-1 text-[1rem] text-ink">{{ area.label }}</span>
-              <div class="flex gap-2" role="group" [attr.aria-label]="area.label + ' accent'">
+              <span class="flex-1">
+                <span class="block text-[1rem] text-ink">{{ area.label }}</span>
+                <span class="block text-[0.8rem] text-ink-muted">{{ accentName(area.key) }}</span>
+              </span>
+              <div class="flex gap-2" role="group" [attr.aria-label]="area.label + ' accent colour'">
                 @for (accent of accents; track accent.id) {
                   <button
                     type="button"
-                    class="size-7 rounded-full border-2 transition-transform"
+                    class="flex size-8 items-center justify-center rounded-full border-2 transition-transform"
                     [style.background]="accent.color"
                     [style.border-color]="current(area.key) === accent.id ? 'var(--color-ink)' : 'transparent'"
                     [attr.aria-pressed]="current(area.key) === accent.id"
                     [attr.aria-label]="accent.label"
+                    [attr.title]="accent.label"
                     (click)="setAccent(area.key, accent.id)"
-                  ></button>
+                  >
+                    @if (current(area.key) === accent.id) {
+                      <app-icon name="check" [size]="16" [strokeWidth]="3" style="color: #12181a" />
+                    }
+                  </button>
                 }
               </div>
             </div>
@@ -71,27 +79,27 @@ const ACCENTS = [
           </div>
 
           <div class="flex min-h-[3.75rem] items-center gap-3 border-t border-line">
-            <span class="flex-1 text-[1rem] text-ink">Show double decimals</span>
+            <span class="flex-1 text-[1rem] text-ink">Show cents (e.g. $12.40)</span>
             <app-toggle-switch
-              label="Show double decimals"
+              label="Show cents (e.g. $12.40)"
               [checked]="prefs.showDoubleDecimals"
               (toggle)="store.updatePreferences({ showDoubleDecimals: $event })"
             />
           </div>
 
           <div class="flex min-h-[3.75rem] items-center gap-3 border-t border-line">
-            <span class="flex-1 text-[1rem] text-ink">Round decimals in summaries</span>
+            <span class="flex-1 text-[1rem] text-ink">Round totals to whole dollars</span>
             <app-toggle-switch
-              label="Round decimals in summaries"
+              label="Round totals to whole dollars"
               [checked]="prefs.roundSummaryAmounts"
               (toggle)="store.updatePreferences({ roundSummaryAmounts: $event })"
             />
           </div>
 
           <div class="flex min-h-[3.75rem] items-center gap-3 border-t border-line">
-            <span class="flex-1 text-[1rem] text-ink">Show Save in tab bar</span>
+            <span class="flex-1 text-[1rem] text-ink">Show Bills in tab bar</span>
             <app-toggle-switch
-              label="Show Save in tab bar"
+              label="Show Bills in tab bar"
               [checked]="prefs.showSaveInTabBar"
               (toggle)="store.updatePreferences({ showSaveInTabBar: $event })"
             />
@@ -194,6 +202,10 @@ export class SettingsPage {
 
   protected current(key: 'overviewAccent' | 'budgetAccent' | 'walletAccent'): string {
     return this.preferences()?.[key] ?? 'overview';
+  }
+
+  protected accentName(key: 'overviewAccent' | 'budgetAccent' | 'walletAccent'): string {
+    return ACCENTS.find((accent) => accent.id === this.current(key))?.label ?? '';
   }
 
   protected setAccent(key: 'overviewAccent' | 'budgetAccent' | 'walletAccent', id: string): void {

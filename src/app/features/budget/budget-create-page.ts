@@ -163,7 +163,7 @@ const ICON_CHOICES = ['home', 'heart', 'banknote', 'car', 'star', 'cart', 'piggy
                 <button
                   type="button"
                   class="flex size-10 items-center justify-center rounded-full text-ink-muted"
-                  [attr.aria-label]="'Remove ' + categoryName(income.categoryId)"
+                  [attr.aria-label]="'Remove ' + categoryName(income.categoryId) + ' from plan'"
                   (click)="removeIncome(income.categoryId)"
                 >
                   <app-icon name="x" [size]="18" />
